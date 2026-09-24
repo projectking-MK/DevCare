@@ -1,0 +1,31 @@
+{
+  "name": "guardianlink",
+  "version": "1.0.0",
+  "description": "Production-ready, transparent child safety monitoring application with WebRTC and local IndexedDB recording",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=server & npm run dev --workspace=client",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspace=client && npm run build --workspace=server",
+    "build:client": "npm run build --workspace=client",
+    "build:server": "npm run build --workspace=server",
+    "start": "node server/dist/server.js",
+    "hash-password": "node server/dist/utils/hashPassword.js"
+  },
+  "keywords": [
+    "guardianlink",
+    "child-safety",
+    "parental-control",
+    "webrtc",
+    "transparent-monitoring",
+    "socketio",
+    "indexeddb"
+  ],
+  "author": "GuardianLink Team",
+  "license": "UNLICENSED"
+}
