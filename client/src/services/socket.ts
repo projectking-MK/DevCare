@@ -4,9 +4,8 @@ let socketInstance: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socketInstance) {
-    // In dev, Vite proxies /socket.io to backend localhost:3000
-    // In production, same host is used with WSS if on HTTPS
-    socketInstance = io(window.location.origin, {
+    const backendUrl = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/+$/, '') || window.location.origin;
+    socketInstance = io(backendUrl, {
       withCredentials: true,
       autoConnect: false,
       reconnection: true,

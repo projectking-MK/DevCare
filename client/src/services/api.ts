@@ -3,8 +3,10 @@
  * Handles HTTP requests to the backend with credential cookies included.
  */
 
-// In development, Vite proxies /api to backend. In production, same-origin is used.
-const API_BASE = '/api';
+// In development or unified deployment, relative /api is used.
+// If frontend is deployed on Vercel and backend on Render, VITE_BACKEND_URL can be set.
+const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/+$/, '') || '';
+const API_BASE = `${BACKEND_URL}/api`;
 
 export class ApiError extends Error {
   constructor(public message: string, public status?: number, public code?: string) {
