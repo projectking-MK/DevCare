@@ -1,0 +1,21 @@
+services:
+  guardianlink:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: guardianlink
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - FRONTEND_URL=https://your-domain.com
+      - SESSION_SECRET=replace_with_a_secure_random_session_secret_key_123
+      - PARENT_EMAIL=parent@example.com
+      - PARENT_PASSWORD_HASH=$2b$10$Y8PqOu2ozjMIPEkbwL9treY1zz2pbYJZrfN71ZtuO08gTuaKFvWCa
+      - STUN_SERVER=stun:stun.l.google.com:19302
+      # Optional TURN relay configuration
+      # - TURN_SERVER=turn:your-turn-server:3478
+      # - TURN_USERNAME=turn_user
+      # - TURN_PASSWORD=turn_password
