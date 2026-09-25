@@ -101,7 +101,7 @@ async function runTests() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     },
-    { email: 'parent@example.com', password: 'GuardianPass123!' }
+    { email: 'kowshiekrajendran007@gmail.com', password: 'Parent@Kows' }
   );
   console.log(`   Status: ${loginRes.statusCode}, User: ${JSON.stringify(loginRes.json?.user)}`);
   const setCookie = loginRes.headers['set-cookie'];

@@ -4,8 +4,8 @@ import { Shield, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck } from 'lucide
 import { useAuth } from '../hooks/useAuth';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('parent@example.com');
-  const [password, setPassword] = useState('GuardianPass123!');
+  const [email, setEmail] = useState('kowshiekrajendran007@gmail.com');
+  const [password, setPassword] = useState('Parent@Kows');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAccountInfo, setShowAccountInfo] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

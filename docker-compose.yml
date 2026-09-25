@@ -12,8 +12,8 @@ services:
       - PORT=3000
       - FRONTEND_URL=https://your-domain.com
       - SESSION_SECRET=replace_with_a_secure_random_session_secret_key_123
-      - PARENT_EMAIL=parent@example.com
-      - PARENT_PASSWORD_HASH=$2b$10$Y8PqOu2ozjMIPEkbwL9treY1zz2pbYJZrfN71ZtuO08gTuaKFvWCa
+      - PARENT_EMAIL=kowshiekrajendran007@gmail.com
+      - PARENT_PASSWORD_HASH=$2b$12$Sh1/6fTAXKMmldB9mP8QFOnkRLaftRGjVmDGfLvdlUE9uKGEb7Gi2
       - STUN_SERVER=stun:stun.l.google.com:19302
       # Optional TURN relay configuration
       # - TURN_SERVER=turn:your-turn-server:3478
