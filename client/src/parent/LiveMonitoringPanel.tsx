@@ -12,7 +12,10 @@ import {
   Clock,
   Sparkles,
   Wifi,
-  User
+  User,
+  Columns,
+  LayoutGrid,
+  ArrowLeftRight
 } from 'lucide-react';
 import { getSocket } from '../services/socket';
 import { WebRtcConnection, WebRtcConnectionState } from '../services/webrtc';
@@ -44,6 +47,10 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const [parentMicEnabled, setParentMicEnabled] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Layout mode for 2-way call ('split' for side-by-side equal tiles, 'pip' for picture-in-picture)
+  const [layoutMode, setLayoutMode] = useState<'split' | 'pip'>('split');
+  const [swapped, setSwapped] = useState(false);
 
   // Request options modal/state
   const [requestCamera, setRequestCamera] = useState(true);
@@ -98,13 +105,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     };
   }, []);
 
-  // Attach parent local stream to PiP video element
+  // Attach parent local stream to parent video element
   useEffect(() => {
     if (parentVideoRef.current && parentLocalStream) {
       parentVideoRef.current.srcObject = parentLocalStream;
       parentVideoRef.current.play().catch(() => {});
     }
-  }, [parentLocalStream]);
+  }, [parentLocalStream, layoutMode, swapped]);
 
   // Acquire Parent's Camera & Mic for Two-Way Video/Audio
   const acquireParentMedia = async (): Promise<MediaStream | null> => {
@@ -248,9 +255,18 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     webrtcRef.current = connection;
 
     const setupPromise = (async () => {
-      // 1. Acquire parent's media for two-way video/audio
+      // 1. Initialize connection with STUN config FIRST
+      await connection.initialize();
+
+      // 2. Acquire parent's media for two-way video/audio and attach
       try {
-        const pStream = await acquireParentMedia();
+        let pStream = parentLocalStreamRef.current;
+        if (!pStream && parentMediaPromiseRef.current) {
+          pStream = await parentMediaPromiseRef.current;
+        }
+        if (!pStream) {
+          pStream = await acquireParentMedia();
+        }
         if (pStream) {
           connection.setLocalStream(pStream);
         }
@@ -258,8 +274,6 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         console.warn('[Parent] Error attaching parent media:', err);
       }
 
-      // 2. Initialize connection with STUN config
-      await connection.initialize();
       return connection;
     })();
 
@@ -463,32 +477,61 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           )}
 
           {monitoringState === 'active' && (
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Layout Switcher Button */}
+              <button
+                onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+                title={layoutMode === 'split' ? 'Switch to Picture-in-Picture mode' : 'Switch to Side-by-Side Dual View'}
+              >
+                {layoutMode === 'split' ? (
+                  <>
+                    <Columns className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Split (50/50)</span>
+                  </>
+                ) : (
+                  <>
+                    <LayoutGrid className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>PiP View</span>
+                  </>
+                )}
+              </button>
+
+              {/* Swap Button */}
+              <button
+                onClick={() => setSwapped(!swapped)}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+                title="Swap video positions"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 text-slate-300" />
+                <span className="hidden sm:inline">Swap</span>
+              </button>
+
               {/* Local Recording Button */}
               {!isRecording ? (
                 <button
                   onClick={startRecording}
-                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-sm font-semibold shadow-md transition-colors cursor-pointer"
+                  className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-xs font-semibold shadow-md transition-colors cursor-pointer"
                 >
-                  <CircleDot className="w-4 h-4 text-white" />
-                  <span>Start Recording</span>
+                  <CircleDot className="w-3.5 h-3.5 text-white" />
+                  <span>Record</span>
                 </button>
               ) : (
                 <button
                   onClick={stopRecording}
-                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-sm font-semibold transition-colors animate-pulse cursor-pointer"
+                  className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-xs font-semibold transition-colors animate-pulse cursor-pointer"
                 >
-                  <Square className="w-3.5 h-3.5 fill-current" />
-                  <span>Stop Recording ({formatDuration(recordDuration)})</span>
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>Stop ({formatDuration(recordDuration)})</span>
                 </button>
               )}
 
               {/* Stop Monitoring Button */}
               <button
                 onClick={handleStopMonitoring}
-                className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium border border-slate-700 transition-colors cursor-pointer"
+                className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
               >
-                <Square className="w-4 h-4" />
+                <Square className="w-3.5 h-3.5" />
                 <span>End Call</span>
               </button>
             </div>
@@ -578,33 +621,116 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           </div>
         </div>
 
-        {/* Video Canvas Container (Child Main Stream + Parent Floating PiP) */}
-        <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
-          <VideoPlayer
-            stream={remoteStream}
-            isLive={monitoringState === 'active'}
-            autoPlay={true}
-            muted={false} // Parent hears child!
-            className="w-full h-full"
-            fallbackMessage={
-              !isDeviceOnline
-                ? 'Child device is offline. Connect child device from /child view.'
-                : monitoringState === 'requesting'
-                ? 'Connecting to child device...'
-                : monitoringState === 'idle'
-                ? 'Monitoring is idle. Click "Start 2-Way Monitoring" to begin.'
-                : 'Waiting for media stream to establish...'
-            }
-          />
+        {/* Video Canvas Container (Side-by-Side Dual View or PiP Mode) */}
+        {monitoringState !== 'active' ? (
+          <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
+            <VideoPlayer
+              stream={remoteStream}
+              isLive={false}
+              autoPlay={true}
+              muted={false}
+              className="w-full h-full"
+              fallbackMessage={
+                !isDeviceOnline
+                  ? 'Child device is offline. Connect child device from /child view.'
+                  : monitoringState === 'requesting'
+                  ? 'Connecting to child device...'
+                  : monitoringState === 'idle'
+                  ? 'Monitoring is idle. Click "Start 2-Way Monitoring" to begin.'
+                  : 'Waiting for media stream to establish...'
+              }
+            />
+          </div>
+        ) : layoutMode === 'split' ? (
+          /* Side-by-Side Dual View (Equal Face-to-Face Video Call) */
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full aspect-video md:aspect-[16/9] min-h-[380px] max-h-[640px]">
+            {/* Child Video Tile */}
+            <div className={`relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-2' : 'order-1'}`}>
+              <VideoPlayer
+                stream={remoteStream}
+                isLive={true}
+                autoPlay={true}
+                muted={false} // Parent hears child!
+                className="w-full h-full"
+                fallbackMessage="Waiting for child video feed..."
+              />
+              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{activeDeviceName} (Child)</span>
+              </div>
+              <div className="absolute bottom-3 left-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs">
+                {micActive ? (
+                  <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <MicOff className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span className="text-[11px] text-slate-300 font-medium">Child Mic</span>
+              </div>
+            </div>
 
-          {/* Parent Self-View PiP Overlay (Available when active session is running) */}
-          {monitoringState === 'active' && (
-            <div className="absolute top-4 right-4 z-20 w-36 sm:w-48 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group">
+            {/* Parent Video Tile */}
+            <div className={`relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-1' : 'order-2'}`}>
               <video
                 ref={parentVideoRef}
                 autoPlay
                 playsInline
-                muted={true} // Muted to avoid feedback loop
+                muted={true} // Local muted to prevent feedback loop
+                className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled ? '' : 'hidden'}`}
+              />
+              {!parentCamEnabled && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mb-2">
+                    <User className="w-8 h-8 text-slate-400" />
+                  </div>
+                  <p className="text-sm font-bold text-white">Your Camera is Off</p>
+                  <p className="text-xs text-slate-400 mt-1">Click the camera icon below to turn on video</p>
+                </div>
+              )}
+              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                <User className="w-3.5 h-3.5 text-blue-400" />
+                <span>You (Parent)</span>
+              </div>
+              {/* Parent Quick Cam & Mic Controls */}
+              <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
+                <button
+                  onClick={toggleParentMic}
+                  title={parentMicEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+                  className={`p-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    parentMicEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                >
+                  {parentMicEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={toggleParentCam}
+                  title={parentCamEnabled ? 'Turn off your camera' : 'Turn on your camera'}
+                  className={`p-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    parentCamEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                >
+                  {parentCamEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* PiP Mode: Full primary video with floating secondary card */
+          <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
+            <VideoPlayer
+              stream={remoteStream}
+              isLive={true}
+              autoPlay={true}
+              muted={false} // Parent hears child
+              className="w-full h-full"
+              fallbackMessage="Waiting for child video feed..."
+            />
+            {/* Top-Right Floating Parent PiP */}
+            <div className="absolute top-4 right-4 z-20 w-40 sm:w-56 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group">
+              <video
+                ref={parentVideoRef}
+                autoPlay
+                playsInline
+                muted={true}
                 className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled ? '' : 'hidden'}`}
               />
               {!parentCamEnabled && (
@@ -613,13 +739,12 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                   <span>Cam Off</span>
                 </div>
               )}
-
-              {/* Parent Floating Control Bar */}
+              {/* Floating controls in PiP */}
               <div className="absolute bottom-1 right-1 flex items-center space-x-1">
                 <button
                   onClick={toggleParentMic}
-                  title={parentMicEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
-                  className={`p-1 rounded-md text-white text-[10px] transition-colors ${
+                  title={parentMicEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                  className={`p-1 rounded-md text-[10px] transition-colors cursor-pointer ${
                     parentMicEnabled ? 'bg-black/70 hover:bg-black text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
                   }`}
                 >
@@ -627,21 +752,20 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 </button>
                 <button
                   onClick={toggleParentCam}
-                  title={parentCamEnabled ? 'Turn off your camera' : 'Turn on your camera'}
-                  className={`p-1 rounded-md text-white text-[10px] transition-colors ${
+                  title={parentCamEnabled ? 'Turn off camera' : 'Turn on camera'}
+                  className={`p-1 rounded-md text-[10px] transition-colors cursor-pointer ${
                     parentCamEnabled ? 'bg-black/70 hover:bg-black text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
                   }`}
                 >
                   {parentCamEnabled ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3" />}
                 </button>
               </div>
-
               <div className="absolute bottom-1 left-2 text-[10px] font-semibold text-slate-300 drop-shadow">
                 Parent (You)
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Active Recording Pill Indicator */}
         {isRecording && (

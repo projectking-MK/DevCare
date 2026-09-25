@@ -11,6 +11,8 @@ import {
   Minimize, 
   User, 
   ArrowLeftRight,
+  Columns,
+  LayoutGrid,
   ExternalLink
 } from 'lucide-react';
 
@@ -36,6 +38,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<'split' | 'pip'>('split'); // Default side-by-side dual view
   const [swapped, setSwapped] = useState(false); // Swap local and remote positions
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
@@ -45,7 +48,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
       localVideoRef.current.srcObject = localStream;
       localVideoRef.current.play().catch(() => {});
     }
-  }, [localStream, swapped]);
+  }, [localStream, swapped, layoutMode]);
 
   // Attach remote stream (Parent)
   useEffect(() => {
@@ -59,6 +62,15 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
       remoteVideoRef.current.play().catch((err) => {
         console.warn('[Child] Remote audio/video play blocked by policy:', err);
       });
+
+      // Listen for unmuting when first packets arrive
+      remoteStream.getVideoTracks().forEach((track) => {
+        track.onunmute = () => {
+          setHasRemoteVideo(true);
+          remoteVideoRef.current?.play().catch(() => {});
+        };
+      });
+
       remoteStream.addEventListener('addtrack', checkVideo);
       remoteStream.addEventListener('removetrack', checkVideo);
       return () => {
@@ -68,7 +80,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
     } else {
       setHasRemoteVideo(false);
     }
-  }, [remoteStream, swapped]);
+  }, [remoteStream, swapped, layoutMode]);
 
   // Track Fullscreen status
   useEffect(() => {
@@ -175,10 +187,39 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
             <span className="uppercase text-[11px] font-mono">{connectionState}</span>
           </div>
 
+          {/* Layout Toggle Button */}
+          <button
+            onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+            title={layoutMode === 'split' ? 'Switch to Picture-in-Picture' : 'Switch to Side-by-Side Split View'}
+          >
+            {layoutMode === 'split' ? (
+              <>
+                <Columns className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">Split (50/50)</span>
+              </>
+            ) : (
+              <>
+                <LayoutGrid className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">PiP View</span>
+              </>
+            )}
+          </button>
+
+          {/* Swap Button */}
+          <button
+            onClick={() => setSwapped(!swapped)}
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+            title="Swap video positions"
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5 text-slate-300" />
+            <span className="hidden sm:inline">Swap</span>
+          </button>
+
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
-            className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
             title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
           >
             {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
@@ -189,115 +230,165 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
 
       {/* Main Video Arena (Two-Way Communication View) */}
       <div className="w-full max-w-5xl mx-auto my-3 sm:my-5 flex-1 flex flex-col justify-center relative">
-        <div className="relative w-full aspect-video max-h-[75vh] bg-slate-900 rounded-3xl overflow-hidden border-2 border-slate-800 shadow-2xl flex items-center justify-center">
-          
-          {/* Main Display: Primary Video Stream */}
-          <div className="w-full h-full relative">
-            {!swapped ? (
-              // Main is Parent's remote stream
-              <>
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  muted={false} // Student hears parent!
-                  className={`w-full h-full object-cover ${hasRemoteVideo ? '' : 'hidden'}`}
-                />
-                {!hasRemoteVideo && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-4">
-                    <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-300">
-                      <User className="w-10 h-10 text-emerald-400" />
-                    </div>
-                    <div>
-                      <p className="text-base font-bold text-white">Parent Connected</p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        {remoteStream?.getAudioTracks().length ? 'Parent audio is live. Waiting for parent video...' : 'Connecting parent audio & video...'}
-                      </p>
-                    </div>
+        {layoutMode === 'split' ? (
+          /* Side-by-Side Dual View (Equal Face-to-Face Video Call) */
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 w-full aspect-video max-h-[75vh]">
+            {/* Parent Video Tile */}
+            <div className={`relative rounded-3xl overflow-hidden bg-slate-900 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-2' : 'order-1'}`}>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                muted={false} // Student hears parent!
+                className="w-full h-full object-cover"
+              />
+              {!hasRemoteVideo && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-3">
+                  <div className="w-16 h-16 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-300">
+                    <User className="w-8 h-8 text-emerald-400" />
                   </div>
-                )}
-                {/* Overlay Badge */}
-                <div className="absolute top-4 left-4 z-10 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5">
-                  <User className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Parent Feed</span>
-                </div>
-              </>
-            ) : (
-              // Main is Student's local self-view
-              <>
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted={true} // Muted to avoid feedback loop
-                  className="w-full h-full object-cover transform -scale-x-100"
-                />
-                {!cameraActive && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-slate-400 text-sm">
-                    Camera is currently disabled
+                  <div>
+                    <p className="text-base font-bold text-white">Parent Connected</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {remoteStream?.getAudioTracks().length ? 'Parent audio is live. Waiting for parent video...' : 'Connecting parent audio & video...'}
+                    </p>
                   </div>
-                )}
-                {/* Overlay Badge */}
-                <div className="absolute top-4 left-4 z-10 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <span>Student (Self-View)</span>
                 </div>
-              </>
-            )}
-          </div>
-
-          {/* Secondary Picture-in-Picture Floating Window */}
-          <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 z-20 w-32 sm:w-52 aspect-video bg-black rounded-2xl overflow-hidden border-2 border-slate-700/80 shadow-2xl transition-all duration-200 hover:scale-105 group">
-            {!swapped ? (
-              // PiP is Student's self-view
-              <div className="w-full h-full relative">
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted={true}
-                  className="w-full h-full object-cover transform -scale-x-100"
-                />
-                {!cameraActive && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-slate-400 text-[10px]">
-                    Camera Off
-                  </div>
-                )}
-                <div className="absolute bottom-1.5 left-2 px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-emerald-400 font-semibold">
-                  You
-                </div>
+              )}
+              {/* Overlay Badge */}
+              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                <User className="w-3.5 h-3.5 text-blue-400" />
+                <span>Parent</span>
               </div>
-            ) : (
-              // PiP is Parent's remote view
-              <div className="w-full h-full relative">
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  muted={false}
-                  className={`w-full h-full object-cover ${hasRemoteVideo ? '' : 'hidden'}`}
-                />
-                {!hasRemoteVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-slate-400 text-[10px]">
+            </div>
+
+            {/* Student Self-View Tile */}
+            <div className={`relative rounded-3xl overflow-hidden bg-slate-900 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-1' : 'order-2'}`}>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted={true} // Local muted to avoid howling loop
+                className="w-full h-full object-cover transform -scale-x-100"
+              />
+              {!cameraActive && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-4 text-center">
+                  <VideoOff className="w-8 h-8 text-slate-500 mb-2" />
+                  <p className="text-xs font-semibold">Your Camera is Off</p>
+                </div>
+              )}
+              {/* Overlay Badge */}
+              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Student (You)</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* PiP Mode: Primary main screen + floating secondary window */
+          <div className="relative w-full aspect-video max-h-[75vh] bg-slate-900 rounded-3xl overflow-hidden border-2 border-slate-800 shadow-2xl flex items-center justify-center">
+            {/* Main Primary View */}
+            <div className="w-full h-full relative">
+              {!swapped ? (
+                <>
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    muted={false}
+                    className="w-full h-full object-cover"
+                  />
+                  {!hasRemoteVideo && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-4">
+                      <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-300">
+                        <User className="w-10 h-10 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-base font-bold text-white">Parent Connected</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {remoteStream?.getAudioTracks().length ? 'Parent audio is live. Waiting for parent video...' : 'Connecting parent audio & video...'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="absolute top-4 left-4 z-10 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5">
+                    <User className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Parent Feed</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted={true}
+                    className="w-full h-full object-cover transform -scale-x-100"
+                  />
+                  {!cameraActive && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-slate-400 text-sm">
+                      Camera is currently disabled
+                    </div>
+                  )}
+                  <div className="absolute top-4 left-4 z-10 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>Student (Self-View)</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Floating PiP Window */}
+            <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 z-20 w-36 sm:w-56 aspect-video bg-black rounded-2xl overflow-hidden border-2 border-slate-700/80 shadow-2xl transition-all duration-200 hover:scale-105 group">
+              {!swapped ? (
+                <div className="w-full h-full relative">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted={true}
+                    className="w-full h-full object-cover transform -scale-x-100"
+                  />
+                  {!cameraActive && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-slate-400 text-[10px]">
+                      Camera Off
+                    </div>
+                  )}
+                  <div className="absolute bottom-1.5 left-2 px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-emerald-400 font-semibold">
+                    You
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full h-full relative">
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    muted={false}
+                    className="w-full h-full object-cover"
+                  />
+                  {!hasRemoteVideo && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-slate-400 text-[10px]">
+                      Parent
+                    </div>
+                  )}
+                  <div className="absolute bottom-1.5 left-2 px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-blue-400 font-semibold">
                     Parent
                   </div>
-                )}
-                <div className="absolute bottom-1.5 left-2 px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-blue-400 font-semibold">
-                  Parent
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Swap Feeds Button */}
-            <button
-              onClick={() => setSwapped(!swapped)}
-              title="Swap main and picture-in-picture views"
-              className="absolute top-1.5 right-1.5 p-1 rounded-lg bg-black/70 hover:bg-black text-white opacity-80 group-hover:opacity-100 transition-opacity"
-            >
-              <ArrowLeftRight className="w-3 h-3" />
-            </button>
+              {/* Swap Feeds Button */}
+              <button
+                onClick={() => setSwapped(!swapped)}
+                title="Swap main and picture-in-picture views"
+                className="absolute top-1.5 right-1.5 p-1 rounded-lg bg-black/70 hover:bg-black text-white opacity-80 group-hover:opacity-100 transition-opacity cursor-pointer"
+              >
+                <ArrowLeftRight className="w-3 h-3" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Bottom Control Bar */}

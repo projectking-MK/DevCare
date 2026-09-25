@@ -39,7 +39,14 @@ export class WebRtcConnection {
    * Initializes the RTCPeerConnection with STUN/TURN servers fetched from server
    */
   async initialize(): Promise<void> {
-    this.close();
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.close();
+      } catch {
+        // Ignore
+      }
+      this.peerConnection = null;
+    }
 
     let iceConfig: { iceServers: RTCIceServer[]; iceTransportPolicy?: RTCIceTransportPolicy } = {
       iceServers: DEFAULT_ICE_SERVERS
@@ -69,6 +76,7 @@ export class WebRtcConnection {
       this.localStream.getTracks().forEach((track) => {
         const senders = this.peerConnection?.getSenders() || [];
         if (!senders.some(s => s.track === track)) {
+          console.log(`[WebRTC] Attaching local track (${track.kind}) during initialize`);
           this.peerConnection?.addTrack(track, this.localStream!);
         }
       });
@@ -159,6 +167,17 @@ export class WebRtcConnection {
    */
   async handleOfferAndCreateAnswer(offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     if (!this.peerConnection) throw new Error('Peer connection not initialized');
+
+    // Attach local stream tracks (Parent camera & mic) before creating answer
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
+        const senders = this.peerConnection?.getSenders() || [];
+        if (!senders.some(s => s.track === track)) {
+          console.log(`[WebRTC] Attaching local track (${track.kind}) prior to creating answer`);
+          this.peerConnection?.addTrack(track, this.localStream!);
+        }
+      });
+    }
 
     this.isSettingRemoteDescription = true;
     await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
