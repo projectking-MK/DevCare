@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { isChildDevicePaired } from '../utils/storage';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('kowshiekrajendran007@gmail.com');
@@ -10,8 +11,17 @@ export const LoginPage: React.FC = () => {
   const [showAccountInfo, setShowAccountInfo] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
+
+  // If this device was paired as a child device and no parent session exists,
+  // automatically navigate directly to the child companion screen.
+  React.useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (isChildDevicePaired() && !user && searchParams.get('mode') !== 'parent') {
+      navigate('/child', { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

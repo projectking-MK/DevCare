@@ -55,14 +55,32 @@ export function registerSocketHandlers(io: SocketIOServer): void {
     });
 
     // 2. Child device socket authentication
-    socket.on('auth:child', (payload: { deviceId: string }, callback) => {
+    socket.on('auth:child', (payload: { deviceId: string; parentId?: string; deviceName?: string }, callback) => {
       try {
         if (!payload || !payload.deviceId || typeof payload.deviceId !== 'string') {
           if (callback) callback({ success: false, error: 'Invalid deviceId.' });
           return;
         }
 
-        const device = sessionStore.getDevice(payload.deviceId);
+        let device = sessionStore.getDevice(payload.deviceId);
+
+        // Auto-recovery / persistent one-time pairing:
+        // If device was paired before and provides valid credentials, restore it!
+        if (!device && payload.parentId && payload.deviceName) {
+          logger.info('restoring_paired_child_device', { deviceId: payload.deviceId, parentId: payload.parentId });
+          device = {
+            deviceId: payload.deviceId,
+            deviceName: payload.deviceName,
+            parentId: payload.parentId,
+            parentSessionId: '',
+            pairedAt: new Date(),
+            isOnline: true,
+            socketId: socket.id,
+            lastSeenAt: new Date()
+          };
+          sessionStore.registerDevice(device);
+        }
+
         if (!device) {
           if (callback) callback({ success: false, error: 'Device not recognized or unpaired.' });
           return;

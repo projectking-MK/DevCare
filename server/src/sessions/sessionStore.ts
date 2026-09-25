@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { ParentSession, PairedDevice, ActiveMonitoringSession } from './types';
 import { logger } from '../utils/logger';
 
@@ -7,17 +9,71 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours max
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000;      // 60 minutes idle
 
 /**
- * Strict in-memory session store.
- * NO persistent database is used. When the server restarts, all sessions cleanly terminate.
+ * SessionStore manages authenticated parent sessions in-memory
+ * and permanently persists paired child devices so children only ever pair once.
  */
 class SessionStore {
   private authenticatedSessions = new Map<string, ParentSession>();
   private pairedDevices = new Map<string, PairedDevice>();
   private activeMonitoringSessions = new Map<string, ActiveMonitoringSession>();
+  private devicesFilePath: string;
 
   constructor() {
-    // Periodic cleanup of expired sessions every 5 minutes
+    // Determine data directory for persisting paired devices
+    const serverDir = path.resolve(process.cwd(), 'server');
+    const baseDir = fs.existsSync(serverDir) && fs.statSync(serverDir).isDirectory() ? serverDir : process.cwd();
+    const dataDir = path.resolve(baseDir, 'data');
+    try {
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+    } catch {
+      // Ignore
+    }
+    this.devicesFilePath = path.join(dataDir, 'paired_devices.json');
+    this.loadDevicesFromDisk();
+
+    // Periodic cleanup of expired parent sessions every 5 minutes
     setInterval(() => this.cleanupExpired(), 5 * 60 * 1000);
+  }
+
+  // --- Persistent Device Store Helpers ---
+
+  private loadDevicesFromDisk(): void {
+    try {
+      if (fs.existsSync(this.devicesFilePath)) {
+        const raw = fs.readFileSync(this.devicesFilePath, 'utf-8');
+        const list: PairedDevice[] = JSON.parse(raw);
+        for (const dev of list) {
+          this.pairedDevices.set(dev.deviceId, {
+            ...dev,
+            pairedAt: new Date(dev.pairedAt),
+            lastSeenAt: dev.lastSeenAt ? new Date(dev.lastSeenAt) : new Date(),
+            isOnline: false,
+            socketId: undefined
+          });
+        }
+        logger.info('loaded_persisted_devices', { count: this.pairedDevices.size });
+      }
+    } catch (e) {
+      logger.warn('failed_loading_persisted_devices', { error: String(e) });
+    }
+  }
+
+  private saveDevicesToDisk(): void {
+    try {
+      const list = Array.from(this.pairedDevices.values()).map((dev) => ({
+        deviceId: dev.deviceId,
+        deviceName: dev.deviceName,
+        parentId: dev.parentId,
+        parentSessionId: dev.parentSessionId,
+        pairedAt: dev.pairedAt,
+        lastSeenAt: dev.lastSeenAt
+      }));
+      fs.writeFileSync(this.devicesFilePath, JSON.stringify(list, null, 2), 'utf-8');
+    } catch (e) {
+      logger.warn('failed_saving_persisted_devices', { error: String(e) });
+    }
   }
 
   // --- Parent Session Management ---
@@ -90,10 +146,11 @@ class SessionStore {
     return { parentId };
   }
 
-  // --- Device Pairing Store ---
+  // --- Device Pairing Store (Persistent) ---
 
   registerDevice(device: PairedDevice): void {
     this.pairedDevices.set(device.deviceId, device);
+    this.saveDevicesToDisk();
     logger.info('device_registered', { deviceId: device.deviceId, parentId: device.parentId });
   }
 
@@ -124,7 +181,11 @@ class SessionStore {
   }
 
   removeDevice(deviceId: string): boolean {
-    return this.pairedDevices.delete(deviceId);
+    const deleted = this.pairedDevices.delete(deviceId);
+    if (deleted) {
+      this.saveDevicesToDisk();
+    }
+    return deleted;
   }
 
   // --- Active Monitoring Sessions ---

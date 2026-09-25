@@ -37,6 +37,12 @@ export const ChildPairingView: React.FC<ChildPairingViewProps> = ({ onPairedSucc
           pairedAt: response.device.pairedAt,
         };
         saveChildDeviceInfo(info);
+        // Enable one-time auto approval so child is automatically ready without repeated prompts
+        try {
+          localStorage.setItem(`guardian_auto_approve_${response.device.deviceId}`, 'true');
+        } catch {
+          // Ignore
+        }
         onPairedSuccess(info);
       } else {
         setError('Failed to pair. Please check the code.');

@@ -196,15 +196,23 @@ export const ChildInterface: React.FC = () => {
     const socket = connectSocket();
 
     const authenticateChild = () => {
-      socket.emit('auth:child', { deviceId: deviceInfo.deviceId }, (res: { success: boolean; error?: string }) => {
-        if (res.success) {
-          setIsConnectedToSocket(true);
-          setErrorMessage(null);
-        } else {
-          setIsConnectedToSocket(false);
-          setErrorMessage(res.error || 'Device not recognized. You may need to pair again.');
+      socket.emit(
+        'auth:child',
+        {
+          deviceId: deviceInfo.deviceId,
+          parentId: deviceInfo.parentId,
+          deviceName: deviceInfo.deviceName
+        },
+        (res: { success: boolean; error?: string }) => {
+          if (res.success) {
+            setIsConnectedToSocket(true);
+            setErrorMessage(null);
+          } else {
+            setIsConnectedToSocket(false);
+            setErrorMessage(res.error || 'Device not recognized. You may need to pair again.');
+          }
         }
-      });
+      );
     };
 
     socket.on('connect', authenticateChild);
