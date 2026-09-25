@@ -349,6 +349,7 @@ export const ChildInterface: React.FC = () => {
           micActive={micActive}
           connectionState={webrtcState}
           onStopMonitoring={handleChildStop}
+          sessionId={activeSessionId}
         />
       </>
     );
