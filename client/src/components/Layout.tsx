@@ -1,11 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { useAuth } from '../hooks/useAuth';
+import { connectSocket } from '../services/socket';
 
 export const Layout: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const { user } = useAuth();
+
+  // Keep parent socket authenticated for real-time device status and monitoring signaling
+  React.useEffect(() => {
+    if (!user) return;
+    const socket = connectSocket();
+
+    const authenticate = () => {
+      socket.emit('auth:parent', { parentId: user.parentId }, (res: { success: boolean }) => {
+        console.log('[Parent Socket Authenticated]:', res);
+      });
+    };
+
+    socket.on('connect', authenticate);
+    if (socket.connected) {
+      authenticate();
+    }
+
+    return () => {
+      socket.off('connect', authenticate);
+    };
+  }, [user]);
 
   // Helper to get active page title
   const getPageTitle = (pathname: string): string => {

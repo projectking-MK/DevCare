@@ -43,6 +43,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {});
     }
   }, [localStream, swapped]);
 
@@ -55,6 +56,9 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
         setHasRemoteVideo(vTracks.length > 0 && vTracks[0].enabled);
       };
       checkVideo();
+      remoteVideoRef.current.play().catch((err) => {
+        console.warn('[Child] Remote audio/video play blocked by policy:', err);
+      });
       remoteStream.addEventListener('addtrack', checkVideo);
       remoteStream.addEventListener('removetrack', checkVideo);
       return () => {

@@ -158,6 +158,7 @@ export const ChildInterface: React.FC = () => {
           setErrorMessage('Connection error: ' + err.message);
         }
       });
+      webrtcRef.current = connection;
 
       await connection.initialize();
       connection.setLocalStream(stream);
@@ -168,8 +169,6 @@ export const ChildInterface: React.FC = () => {
         sessionId,
         sdp: offer
       });
-
-      webrtcRef.current = connection;
     } catch (err) {
       console.warn('[Child] Media access error:', err);
       const isDenied = err instanceof DOMException && err.name === 'NotAllowedError';

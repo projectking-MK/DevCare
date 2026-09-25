@@ -51,11 +51,29 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const [showRequestConfig, setShowRequestConfig] = useState(false);
 
   const webrtcRef = useRef<WebRtcConnection | null>(null);
+  const initConnectionPromiseRef = useRef<Promise<WebRtcConnection> | null>(null);
   const sessionStartTimeRef = useRef<number>(0);
   const sessionTimerRef = useRef<number | null>(null);
   const parentLocalStreamRef = useRef<MediaStream | null>(null);
   const parentMediaPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const parentVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Ensure parent socket is authenticated on mount and on reconnect
+  useEffect(() => {
+    const socket = getSocket();
+    const authenticate = () => {
+      socket.emit('auth:parent', (res: { success: boolean }) => {
+        console.log('[LiveMonitoringPanel Parent Auth]:', res);
+      });
+    };
+    socket.on('connect', authenticate);
+    if (socket.connected) {
+      authenticate();
+    }
+    return () => {
+      socket.off('connect', authenticate);
+    };
+  }, []);
 
   // MediaRecorder Hook for local storage in IndexedDB
   const {
@@ -84,6 +102,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   useEffect(() => {
     if (parentVideoRef.current && parentLocalStream) {
       parentVideoRef.current.srcObject = parentLocalStream;
+      parentVideoRef.current.play().catch(() => {});
     }
   }, [parentLocalStream]);
 
@@ -159,24 +178,32 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     };
 
     const handleOffer = async (data: { sessionId: string; sdp: RTCSessionDescriptionInit }) => {
-      if (parentMediaPromiseRef.current) {
-        await parentMediaPromiseRef.current;
+      console.log('[Parent] Processing incoming WebRTC offer for session:', data.sessionId);
+      if (initConnectionPromiseRef.current) {
+        await initConnectionPromiseRef.current;
       }
-      if (!webrtcRef.current) return;
+      const connection = webrtcRef.current;
+      if (!connection) {
+        console.warn('[Parent] WebRTC connection not ready for offer');
+        return;
+      }
       try {
-        const answer = await webrtcRef.current.handleOfferAndCreateAnswer(data.sdp);
+        const answer = await connection.handleOfferAndCreateAnswer(data.sdp);
         socket.emit('webrtc:answer', {
           sessionId: data.sessionId,
           sdp: answer
         });
+        console.log('[Parent] Successfully answered WebRTC offer for session:', data.sessionId);
       } catch (err) {
         console.error('[Parent] Error handling offer:', err);
       }
     };
 
-    const handleIceCandidate = (data: { sessionId: string; candidate: RTCIceCandidateInit }) => {
-      if (!webrtcRef.current) return;
-      webrtcRef.current.addIceCandidate(data.candidate);
+    const handleIceCandidate = async (data: { sessionId: string; candidate: RTCIceCandidateInit }) => {
+      if (initConnectionPromiseRef.current) {
+        await initConnectionPromiseRef.current;
+      }
+      webrtcRef.current?.addIceCandidate(data.candidate);
     };
 
     socket.on('monitoring:started', handleMonitoringStarted);
@@ -194,7 +221,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     };
   }, [activeSessionId]);
 
-  const initWebRtcReceiver = async (sessionId: string) => {
+  const initWebRtcReceiver = (sessionId: string): Promise<WebRtcConnection> => {
     webrtcRef.current?.close();
 
     const connection = new WebRtcConnection({
@@ -218,18 +245,30 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       }
     });
 
-    // Acquire parent's media for two-way video/audio
-    parentMediaPromiseRef.current = acquireParentMedia();
-    const pStream = await parentMediaPromiseRef.current;
-    if (pStream) {
-      connection.setLocalStream(pStream);
-    }
-
-    await connection.initialize();
     webrtcRef.current = connection;
+
+    const setupPromise = (async () => {
+      // 1. Acquire parent's media for two-way video/audio
+      try {
+        const pStream = await acquireParentMedia();
+        if (pStream) {
+          connection.setLocalStream(pStream);
+        }
+      } catch (err) {
+        console.warn('[Parent] Error attaching parent media:', err);
+      }
+
+      // 2. Initialize connection with STUN config
+      await connection.initialize();
+      return connection;
+    })();
+
+    initConnectionPromiseRef.current = setupPromise;
+    return setupPromise;
   };
 
   const cleanupSession = (stoppedBy = 'parent') => {
+    initConnectionPromiseRef.current = null;
     // If recording was running, stop it
     if (isRecording) {
       stopRecording();

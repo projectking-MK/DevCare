@@ -44,11 +44,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     if (stream) {
       video.srcObject = stream;
-      const tracks = stream.getVideoTracks();
-      setHasVideoTrack(tracks.length > 0 && tracks[0].enabled);
+      const checkTracks = () => {
+        const tracks = stream.getVideoTracks();
+        setHasVideoTrack(tracks.length > 0 && tracks[0].enabled);
+      };
+      checkTracks();
+
+      // Trigger playback with autoplay policy fallback
+      if (autoPlay) {
+        video.play().then(() => setIsPlaying(true)).catch((err) => {
+          console.warn('[VideoPlayer] Autoplay with audio blocked by browser policy, fallback to muted:', err);
+          video.muted = true;
+          setIsMuted(true);
+          video.play().then(() => setIsPlaying(true)).catch(console.error);
+        });
+      }
 
       const handleTrackUpdate = () => {
-        setHasVideoTrack(stream.getVideoTracks().length > 0);
+        checkTracks();
+        if (autoPlay && video.paused) {
+          video.play().catch(() => {});
+        }
       };
 
       stream.addEventListener('addtrack', handleTrackUpdate);
@@ -141,6 +157,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         className="w-full h-full object-contain"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onLoadedMetadata={() => {
+          if (autoPlay && videoRef.current && videoRef.current.paused) {
+            videoRef.current.play().catch(() => {});
+          }
+        }}
       />
 
       {/* Fallback overlay when stream is absent or video track is disabled */}

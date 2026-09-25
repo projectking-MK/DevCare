@@ -24,11 +24,18 @@ export function getIceConfiguration(): WebRtcIceConfiguration {
     });
   }
 
-  // Backup public Google STUN for maximum NAT traversal reliability
-  if (stunServer !== 'stun:stun.l.google.com:19302') {
-    iceServers.push({
-      urls: 'stun:stun.l.google.com:19302'
-    });
+  // Backup public STUN servers for maximum NAT traversal reliability across networks
+  const backupStuns = [
+    'stun:stun.l.google.com:19302',
+    'stun:stun1.l.google.com:19302',
+    'stun:stun2.l.google.com:19302',
+    'stun:stun.services.mozilla.com',
+    'stun:global.stun.twilio.com:3478'
+  ];
+  for (const backup of backupStuns) {
+    if (!iceServers.some(s => s.urls === backup)) {
+      iceServers.push({ urls: backup });
+    }
   }
 
   // 2. TURN Relay Server (if configured in environment)

@@ -25,29 +25,44 @@ export function registerSocketHandlers(io: SocketIOServer): void {
     });
 
     // 1. Parent socket authentication
-    socket.on('auth:parent', (callback) => {
+    socket.on('auth:parent', (arg1, arg2) => {
+      const payload = typeof arg1 === 'object' && arg1 !== null ? arg1 : {};
+      const callback = typeof arg1 === 'function' ? arg1 : (typeof arg2 === 'function' ? arg2 : undefined);
+
       try {
+        let parentId: string | undefined;
+
+        // Try reading session cookie first
         const rawCookies = socket.handshake.headers.cookie;
-        if (!rawCookies) {
-          if (callback) callback({ success: false, error: 'No authentication cookies found.' });
-          return;
+        if (rawCookies) {
+          const parsedCookies = cookie.parse(rawCookies);
+          const sessionId = parsedCookies[SESSION_COOKIE_NAME];
+          const session = sessionStore.getSession(sessionId);
+          if (session) {
+            parentId = session.parentId;
+          }
         }
 
-        const parsedCookies = cookie.parse(rawCookies);
-        const sessionId = parsedCookies[SESSION_COOKIE_NAME];
-        const session = sessionStore.getSession(sessionId);
+        // Fallback: If payload.parentId is provided, verify against single-owner parentId
+        if (!parentId && payload.parentId && typeof payload.parentId === 'string') {
+          const configuredEmail = process.env.PARENT_EMAIL || 'parent@example.com';
+          const expectedParentId = `parent_${Buffer.from(configuredEmail).toString('base64url').slice(0, 12)}`;
+          if (payload.parentId === expectedParentId) {
+            parentId = expectedParentId;
+          }
+        }
 
-        if (!session) {
-          if (callback) callback({ success: false, error: 'Invalid or expired session.' });
+        if (!parentId) {
+          if (callback) callback({ success: false, error: 'Parent authentication required.' });
           return;
         }
 
         socketData.role = 'parent';
-        socketData.parentId = session.parentId;
-        socket.join(`parent_${session.parentId}`);
+        socketData.parentId = parentId;
+        socket.join(`parent_${parentId}`);
 
-        logger.info('parent_socket_authenticated', { parentId: session.parentId, socketId: socket.id });
-        if (callback) callback({ success: true, parentId: session.parentId });
+        logger.info('parent_socket_authenticated', { parentId, socketId: socket.id });
+        if (callback) callback({ success: true, parentId });
       } catch (err) {
         logger.error('parent_socket_auth_error', err);
         if (callback) callback({ success: false, error: 'Authentication failed.' });

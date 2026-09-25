@@ -16,7 +16,11 @@ export interface WebRtcCallbacks {
 }
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' }
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.services.mozilla.com' },
+  { urls: 'stun:global.stun.twilio.com:3478' }
 ];
 
 export class WebRtcConnection {
@@ -96,17 +100,28 @@ export class WebRtcConnection {
 
     // Receive remote tracks (for Parent receiver and Child receiver)
     this.peerConnection.ontrack = (event) => {
-      console.log(`[WebRTC] Received remote track: ${event.track.kind}`);
-      event.streams[0]?.getTracks().forEach((track) => {
-        if (!this.remoteStream.getTracks().includes(track)) {
-          this.remoteStream.addTrack(track);
-        }
-      });
-      // In case no stream wrapper is provided
-      if (!this.remoteStream.getTracks().includes(event.track)) {
+      console.log(`[WebRTC] Received remote track: ${event.track.kind}, id: ${event.track.id}`);
+      if (event.streams && event.streams[0]) {
+        event.streams[0].getTracks().forEach((track) => {
+          if (!this.remoteStream.getTracks().some(t => t.id === track.id)) {
+            this.remoteStream.addTrack(track);
+          }
+        });
+      }
+      if (!this.remoteStream.getTracks().some(t => t.id === event.track.id)) {
         this.remoteStream.addTrack(event.track);
       }
-      this.callbacks.onRemoteStream?.(this.remoteStream);
+
+      // Always pass a new MediaStream instance so React state updates trigger re-render
+      const streamUpdate = new MediaStream(this.remoteStream.getTracks());
+      this.callbacks.onRemoteStream?.(streamUpdate);
+
+      // Listen for when first packets arrive
+      event.track.onunmute = () => {
+        console.log(`[WebRTC] Remote track unmuted: ${event.track.kind}`);
+        const unmutedStream = new MediaStream(this.remoteStream.getTracks());
+        this.callbacks.onRemoteStream?.(unmutedStream);
+      };
     };
   }
 
