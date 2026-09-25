@@ -4,22 +4,23 @@ import path from 'path';
 import { ParentSession, PairedDevice, ActiveMonitoringSession } from './types';
 import { logger } from '../utils/logger';
 
-// Session lifetime limits
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours max
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000;      // 60 minutes idle
+// Session lifetime limits (Persists until user clicks Logout)
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days max (until logout)
 
 /**
- * SessionStore manages authenticated parent sessions in-memory
- * and permanently persists paired child devices so children only ever pair once.
+ * SessionStore manages authenticated parent sessions and paired child devices.
+ * Both parent sessions and paired child devices are permanently persisted to disk
+ * so parents and children only ever pair once and stay connected until they explicitly click Logout or Unpair.
  */
 class SessionStore {
   private authenticatedSessions = new Map<string, ParentSession>();
   private pairedDevices = new Map<string, PairedDevice>();
   private activeMonitoringSessions = new Map<string, ActiveMonitoringSession>();
   private devicesFilePath: string;
+  private sessionsFilePath: string;
 
   constructor() {
-    // Determine data directory for persisting paired devices
+    // Determine data directory for persisting paired devices and sessions
     const serverDir = path.resolve(process.cwd(), 'server');
     const baseDir = fs.existsSync(serverDir) && fs.statSync(serverDir).isDirectory() ? serverDir : process.cwd();
     const dataDir = path.resolve(baseDir, 'data');
@@ -31,10 +32,13 @@ class SessionStore {
       // Ignore
     }
     this.devicesFilePath = path.join(dataDir, 'paired_devices.json');
-    this.loadDevicesFromDisk();
+    this.sessionsFilePath = path.join(dataDir, 'parent_sessions.json');
 
-    // Periodic cleanup of expired parent sessions every 5 minutes
-    setInterval(() => this.cleanupExpired(), 5 * 60 * 1000);
+    this.loadDevicesFromDisk();
+    this.loadSessionsFromDisk();
+
+    // Periodic cleanup of expired parent sessions every 1 hour
+    setInterval(() => this.cleanupExpired(), 60 * 60 * 1000);
   }
 
   // --- Persistent Device Store Helpers ---
@@ -76,6 +80,48 @@ class SessionStore {
     }
   }
 
+  // --- Persistent Parent Sessions Helpers ---
+
+  private loadSessionsFromDisk(): void {
+    try {
+      if (fs.existsSync(this.sessionsFilePath)) {
+        const raw = fs.readFileSync(this.sessionsFilePath, 'utf-8');
+        const list: ParentSession[] = JSON.parse(raw);
+        const now = new Date();
+        for (const s of list) {
+          const expiresAt = new Date(s.expiresAt);
+          if (now < expiresAt) {
+            this.authenticatedSessions.set(s.sessionId, {
+              ...s,
+              createdAt: new Date(s.createdAt),
+              expiresAt,
+              lastActivityAt: s.lastActivityAt ? new Date(s.lastActivityAt) : new Date()
+            });
+          }
+        }
+        logger.info('loaded_persisted_parent_sessions', { count: this.authenticatedSessions.size });
+      }
+    } catch (e) {
+      logger.warn('failed_loading_persisted_parent_sessions', { error: String(e) });
+    }
+  }
+
+  private saveSessionsToDisk(): void {
+    try {
+      const list = Array.from(this.authenticatedSessions.values()).map((s) => ({
+        sessionId: s.sessionId,
+        parentId: s.parentId,
+        email: s.email,
+        createdAt: s.createdAt,
+        expiresAt: s.expiresAt,
+        lastActivityAt: s.lastActivityAt
+      }));
+      fs.writeFileSync(this.sessionsFilePath, JSON.stringify(list, null, 2), 'utf-8');
+    } catch (e) {
+      logger.warn('failed_saving_persisted_parent_sessions', { error: String(e) });
+    }
+  }
+
   // --- Parent Session Management ---
 
   createSession(parentId: string, email: string): ParentSession {
@@ -93,6 +139,7 @@ class SessionStore {
     };
 
     this.authenticatedSessions.set(sessionId, session);
+    this.saveSessionsToDisk();
     logger.info('session_created', { parentId, email, expiresAt: expiresAt.toISOString() });
     return session;
   }
@@ -103,15 +150,8 @@ class SessionStore {
     if (!session) return null;
 
     const now = new Date();
-    // Check hard expiry
+    // Check hard expiry (30 days)
     if (now > session.expiresAt) {
-      this.destroySession(sessionId);
-      return null;
-    }
-
-    // Check idle timeout
-    if (now.getTime() - session.lastActivityAt.getTime() > IDLE_TIMEOUT_MS) {
-      logger.info('session_idle_timeout', { sessionId, parentId: session.parentId });
       this.destroySession(sessionId);
       return null;
     }
@@ -133,6 +173,7 @@ class SessionStore {
 
     const parentId = session.parentId;
     this.authenticatedSessions.delete(sessionId);
+    this.saveSessionsToDisk();
 
     // Stop any active monitoring session tied to this parent
     for (const [monitoringId, mon] of this.activeMonitoringSessions.entries()) {
@@ -250,11 +291,11 @@ class SessionStore {
     return null;
   }
 
-  // Periodic cleanup
+  // Periodic cleanup of expired parent sessions (past 30-day hard limit)
   private cleanupExpired(): void {
     const now = new Date();
     for (const [id, session] of this.authenticatedSessions.entries()) {
-      if (now > session.expiresAt || (now.getTime() - session.lastActivityAt.getTime() > IDLE_TIMEOUT_MS)) {
+      if (now > session.expiresAt) {
         this.destroySession(id);
       }
     }

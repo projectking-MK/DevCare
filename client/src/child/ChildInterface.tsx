@@ -27,7 +27,8 @@ interface IncomingRequest {
 }
 
 export const ChildInterface: React.FC = () => {
-  const [deviceInfo, setDeviceInfo] = useState<SavedChildDeviceInfo | null>(null);
+  // Synchronously initialize device info so paired child devices never show code entry on refresh
+  const [deviceInfo, setDeviceInfo] = useState<SavedChildDeviceInfo | null>(() => getChildDeviceInfo());
   const [isConnectedToSocket, setIsConnectedToSocket] = useState(false);
   const [incomingRequest, setIncomingRequest] = useState<IncomingRequest | null>(null);
   const [isMonitoringActive, setIsMonitoringActive] = useState(false);
@@ -38,7 +39,10 @@ export const ChildInterface: React.FC = () => {
   const [micActive, setMicActive] = useState(false);
   const [webrtcState, setWebrtcState] = useState<WebRtcConnectionState>('closed');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isOneTimeApproved, setIsOneTimeApproved] = useState<boolean>(false);
+  const [isOneTimeApproved, setIsOneTimeApproved] = useState<boolean>(() => {
+    const saved = getChildDeviceInfo();
+    return saved ? localStorage.getItem(`guardian_auto_approve_${saved.deviceId}`) === 'true' : false;
+  });
 
   const webrtcRef = useRef<WebRtcConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);

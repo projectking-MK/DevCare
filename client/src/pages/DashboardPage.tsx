@@ -42,8 +42,16 @@ export const DashboardPage: React.FC = () => {
       const res = await pairingApi.getDevices();
       if (res.success) {
         setDevices(res.devices);
-        if (res.devices.length > 0 && !selectedDevice) {
-          setSelectedDevice(res.devices[0]);
+        if (res.devices.length > 0) {
+          const savedId = localStorage.getItem('gl_parent_selected_device');
+          const matched = res.devices.find((d) => d.deviceId === savedId);
+          const active = matched || res.devices[0];
+          setSelectedDevice(active);
+          try {
+            localStorage.setItem('gl_parent_selected_device', active.deviceId);
+          } catch {
+            // Ignore
+          }
         }
       }
     } catch (err) {
@@ -82,7 +90,12 @@ export const DashboardPage: React.FC = () => {
         if (exists) return prev;
         return [...prev, data.device];
       });
-      setSelectedDevice((curr) => curr || data.device);
+      setSelectedDevice(data.device);
+      try {
+        localStorage.setItem('gl_parent_selected_device', data.device.deviceId);
+      } catch {
+        // Ignore
+      }
     });
 
     // Listen for device online/offline status updates

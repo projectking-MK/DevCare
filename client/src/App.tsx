@@ -57,9 +57,6 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   if (!user) {
-    if (isChildDevicePaired()) {
-      return <Navigate to="/child" replace />;
-    }
     return <Navigate to="/login" replace />;
   }
 

@@ -66,7 +66,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
     secure: isProduction,
     sameSite: isProduction ? 'none' : 'lax',
     path: '/',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days (persists until parent clicks Logout)
   });
 
   logger.info('login_success', { parentId, email: configuredEmail });

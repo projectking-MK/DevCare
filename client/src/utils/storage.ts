@@ -4,7 +4,8 @@
  * IMPORTANT:
  * - NO parent passwords or credentials are stored here.
  * - Stores non-sensitive child device identity to guarantee one-time pairing
- *   and automatic login when opening the webpage.
+ *   and automatic login when opening the webpage without needing repeated pairing.
+ * - Pairing stays permanently active until explicitly unpaired.
  */
 
 const CHILD_DEVICE_KEY = 'gl_child_device_info';
@@ -22,7 +23,10 @@ export function saveChildDeviceInfo(info: SavedChildDeviceInfo): void {
     // 1. Primary storage in localStorage
     localStorage.setItem(CHILD_DEVICE_KEY, serialized);
 
-    // 2. Redundant persistent cookie (1 year lifespan) to protect against localStorage clearance
+    // 2. Redundant sessionStorage
+    sessionStorage.setItem(CHILD_DEVICE_KEY, serialized);
+
+    // 3. Redundant persistent cookie (1 year lifespan) to protect against localStorage clearance
     const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
     document.cookie = `gl_child_device=${encodeURIComponent(serialized)}; expires=${expires}; path=/; SameSite=Lax`;
   } catch {
@@ -38,14 +42,26 @@ export function getChildDeviceInfo(): SavedChildDeviceInfo | null {
       return JSON.parse(raw);
     }
 
-    // 2. Check redundant cookie fallback
+    // 2. Check redundant sessionStorage
+    const sessionRaw = sessionStorage.getItem(CHILD_DEVICE_KEY);
+    if (sessionRaw) {
+      try {
+        localStorage.setItem(CHILD_DEVICE_KEY, sessionRaw);
+      } catch {
+        // Ignore
+      }
+      return JSON.parse(sessionRaw);
+    }
+
+    // 3. Check redundant cookie fallback
     const match = document.cookie.match(/(?:^|;\s*)gl_child_device=([^;]+)/);
     if (match && match[1]) {
       const decoded = decodeURIComponent(match[1]);
       const parsed = JSON.parse(decoded);
-      // Restore to localStorage for instant access
+      // Restore to localStorage and sessionStorage for instant access
       try {
         localStorage.setItem(CHILD_DEVICE_KEY, decoded);
+        sessionStorage.setItem(CHILD_DEVICE_KEY, decoded);
       } catch {
         // Ignore
       }
@@ -65,6 +81,7 @@ export function isChildDevicePaired(): boolean {
 export function clearChildDeviceInfo(): void {
   try {
     localStorage.removeItem(CHILD_DEVICE_KEY);
+    sessionStorage.removeItem(CHILD_DEVICE_KEY);
     document.cookie = 'gl_child_device=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax';
   } catch {
     // Ignore
