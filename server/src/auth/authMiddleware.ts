@@ -25,11 +25,10 @@ export function requireParentAuth(req: AuthenticatedRequest, res: Response, next
   const session = sessionStore.getSession(sessionId);
 
   if (!session) {
-    // Clear invalid or expired cookie
     res.clearCookie(SESSION_COOKIE_NAME, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       path: '/'
     });
 

@@ -84,9 +84,19 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
         </div>
 
         {error && (
-          <div className="mb-5 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center space-x-2">
-            <ShieldAlert className="w-4 h-4 flex-shrink-0" />
-            <span>{error}</span>
+          <div className="mb-5 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex flex-col space-y-2">
+            <div className="flex items-center space-x-2">
+              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+            {(error.toLowerCase().includes('authentication') || error.toLowerCase().includes('session')) && (
+              <a
+                href="/login"
+                className="inline-flex items-center justify-center py-1.5 px-3 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-white font-semibold text-[11px] transition-colors self-start"
+              >
+                Log In Again →
+              </a>
+            )}
           </div>
         )}
 

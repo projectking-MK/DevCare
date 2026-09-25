@@ -59,12 +59,12 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
   const parentId = `parent_${Buffer.from(configuredEmail).toString('base64url').slice(0, 12)}`;
   const session = sessionStore.createSession(parentId, configuredEmail);
 
-  // Set secure HttpOnly cookie
+  // Set secure HttpOnly cookie (sameSite: 'none' in production ensures cross-origin compatibility)
   const isProduction = process.env.NODE_ENV === 'production';
   res.cookie(SESSION_COOKIE_NAME, session.sessionId, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: isProduction ? 'none' : 'lax',
     path: '/',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   });
@@ -111,7 +111,7 @@ export function logoutHandler(req: AuthenticatedRequest, res: Response): void {
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/'
   });
 
