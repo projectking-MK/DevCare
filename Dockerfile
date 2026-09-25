@@ -8,14 +8,17 @@ COPY package*.json ./
 COPY client/package*.json ./client/
 COPY server/package*.json ./server/
 
-# Install dependencies
+# Install dependencies for building
 RUN npm ci
 
-# Copy source code
+# Copy full source code
 COPY . .
 
-# Build frontend and backend
+# Build both frontend (client/dist) and backend (server/dist)
 RUN npm run build
+
+# Prune dev dependencies to keep production image small
+RUN npm prune --omit=dev
 
 # Stage 2: Production runtime image
 FROM node:20-alpine AS runner
@@ -24,12 +27,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copy built application and node_modules
+# Copy package descriptors and hoisted production dependencies
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
+
+# Copy built frontend client assets
 COPY --from=builder /app/client/dist ./client/dist
+
+# Copy built backend server code
 COPY --from=builder /app/server/package*.json ./server/
-COPY --from=builder /app/server/node_modules ./server/node_modules
 COPY --from=builder /app/server/dist ./server/dist
 
 EXPOSE 3000
