@@ -60,6 +60,16 @@ export class WebRtcConnection {
     this.peerConnection = new RTCPeerConnection(rtcConfig);
     this.remoteStream = new MediaStream();
 
+    // Attach local tracks if localStream was provided before initialize
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
+        const senders = this.peerConnection?.getSenders() || [];
+        if (!senders.some(s => s.track === track)) {
+          this.peerConnection?.addTrack(track, this.localStream!);
+        }
+      });
+    }
+
     // Track state changes
     this.peerConnection.onconnectionstatechange = () => {
       const state = (this.peerConnection?.connectionState || 'closed') as WebRtcConnectionState;
@@ -84,11 +94,13 @@ export class WebRtcConnection {
       }
     };
 
-    // Receive remote tracks (for Parent receiver)
+    // Receive remote tracks (for Parent receiver and Child receiver)
     this.peerConnection.ontrack = (event) => {
       console.log(`[WebRTC] Received remote track: ${event.track.kind}`);
       event.streams[0]?.getTracks().forEach((track) => {
-        this.remoteStream.addTrack(track);
+        if (!this.remoteStream.getTracks().includes(track)) {
+          this.remoteStream.addTrack(track);
+        }
       });
       // In case no stream wrapper is provided
       if (!this.remoteStream.getTracks().includes(event.track)) {
@@ -99,14 +111,17 @@ export class WebRtcConnection {
   }
 
   /**
-   * Attach local media stream (Child sender)
+   * Attach local media stream
    */
   setLocalStream(stream: MediaStream): void {
     this.localStream = stream;
     if (!this.peerConnection) return;
 
     stream.getTracks().forEach((track) => {
-      this.peerConnection?.addTrack(track, stream);
+      const senders = this.peerConnection?.getSenders() || [];
+      if (!senders.some(s => s.track === track)) {
+        this.peerConnection?.addTrack(track, stream);
+      }
     });
   }
 
@@ -117,8 +132,8 @@ export class WebRtcConnection {
     if (!this.peerConnection) throw new Error('Peer connection not initialized');
 
     const offer = await this.peerConnection.createOffer({
-      offerToReceiveAudio: false,
-      offerToReceiveVideo: false,
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
     });
     await this.peerConnection.setLocalDescription(offer);
     return offer;

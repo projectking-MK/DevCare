@@ -11,7 +11,8 @@ import {
   RefreshCw,
   Clock,
   Sparkles,
-  Wifi
+  Wifi,
+  User
 } from 'lucide-react';
 import { getSocket } from '../services/socket';
 import { WebRtcConnection, WebRtcConnectionState } from '../services/webrtc';
@@ -36,8 +37,11 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [webrtcState, setWebrtcState] = useState<WebRtcConnectionState>('closed');
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [parentLocalStream, setParentLocalStream] = useState<MediaStream | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
+  const [parentCamEnabled, setParentCamEnabled] = useState(true);
+  const [parentMicEnabled, setParentMicEnabled] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -49,6 +53,9 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const webrtcRef = useRef<WebRtcConnection | null>(null);
   const sessionStartTimeRef = useRef<number>(0);
   const sessionTimerRef = useRef<number | null>(null);
+  const parentLocalStreamRef = useRef<MediaStream | null>(null);
+  const parentMediaPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
+  const parentVideoRef = useRef<HTMLVideoElement>(null);
 
   // MediaRecorder Hook for local storage in IndexedDB
   const {
@@ -64,9 +71,52 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   useEffect(() => {
     return () => {
       if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
+      if (parentLocalStreamRef.current) {
+        parentLocalStreamRef.current.getTracks().forEach((t) => {
+          try { t.stop(); } catch {}
+        });
+      }
       webrtcRef.current?.close();
     };
   }, []);
+
+  // Attach parent local stream to PiP video element
+  useEffect(() => {
+    if (parentVideoRef.current && parentLocalStream) {
+      parentVideoRef.current.srcObject = parentLocalStream;
+    }
+  }, [parentLocalStream]);
+
+  // Acquire Parent's Camera & Mic for Two-Way Video/Audio
+  const acquireParentMedia = async (): Promise<MediaStream | null> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+      parentLocalStreamRef.current = stream;
+      setParentLocalStream(stream);
+      setParentCamEnabled(stream.getVideoTracks().length > 0);
+      setParentMicEnabled(stream.getAudioTracks().length > 0);
+      return stream;
+    } catch (err1) {
+      console.warn('[Parent] Video+Audio capture failed, falling back to audio only:', err1);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        parentLocalStreamRef.current = stream;
+        setParentLocalStream(stream);
+        setParentCamEnabled(false);
+        setParentMicEnabled(stream.getAudioTracks().length > 0);
+        return stream;
+      } catch (err2) {
+        console.warn('[Parent] Could not acquire audio or video for parent:', err2);
+        return null;
+      }
+    }
+  };
 
   // Socket event listeners for signaling
   useEffect(() => {
@@ -92,7 +142,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         setElapsedSeconds(Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
       }, 1000);
 
-      // Initialize WebRTC receiver
+      // Initialize WebRTC receiver with 2-way streaming
       initWebRtcReceiver(data.sessionId);
     };
 
@@ -109,6 +159,9 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     };
 
     const handleOffer = async (data: { sessionId: string; sdp: RTCSessionDescriptionInit }) => {
+      if (parentMediaPromiseRef.current) {
+        await parentMediaPromiseRef.current;
+      }
       if (!webrtcRef.current) return;
       try {
         const answer = await webrtcRef.current.handleOfferAndCreateAnswer(data.sdp);
@@ -149,7 +202,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         setWebrtcState(state);
       },
       onRemoteStream: (stream) => {
-        console.log('[Parent] Received remote stream tracks:', stream.getTracks().length);
+        console.log('[Parent] Received remote child stream tracks:', stream.getTracks().length);
         setRemoteStream(stream);
       },
       onIceCandidate: (candidate) => {
@@ -165,6 +218,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       }
     });
 
+    // Acquire parent's media for two-way video/audio
+    parentMediaPromiseRef.current = acquireParentMedia();
+    const pStream = await parentMediaPromiseRef.current;
+    if (pStream) {
+      connection.setLocalStream(pStream);
+    }
+
     await connection.initialize();
     webrtcRef.current = connection;
   };
@@ -178,6 +238,15 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     if (sessionTimerRef.current) {
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
+    }
+
+    // Stop parent local stream tracks to kill camera/mic lights
+    if (parentLocalStreamRef.current) {
+      parentLocalStreamRef.current.getTracks().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
+      parentLocalStreamRef.current = null;
+      setParentLocalStream(null);
     }
 
     // Save session metadata into IndexedDB
@@ -216,6 +285,9 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     setMonitoringState('requesting');
     setShowRequestConfig(false);
 
+    // Warm up parent webcam early while signaling
+    parentMediaPromiseRef.current = acquireParentMedia();
+
     const socket = getSocket();
     socket.emit(
       'monitoring:request',
@@ -242,6 +314,26 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     }
     setMonitoringState('idle');
     cleanupSession('parent');
+  };
+
+  // Toggle Parent Mic
+  const toggleParentMic = () => {
+    if (parentLocalStreamRef.current) {
+      const aTracks = parentLocalStreamRef.current.getAudioTracks();
+      const next = !parentMicEnabled;
+      aTracks.forEach((t) => { t.enabled = next; });
+      setParentMicEnabled(next);
+    }
+  };
+
+  // Toggle Parent Camera
+  const toggleParentCam = () => {
+    if (parentLocalStreamRef.current) {
+      const vTracks = parentLocalStreamRef.current.getVideoTracks();
+      const next = !parentCamEnabled;
+      vTracks.forEach((t) => { t.enabled = next; });
+      setParentCamEnabled(next);
+    }
   };
 
   return (
@@ -278,10 +370,10 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 <button
                   onClick={() => setShowRequestConfig(true)}
                   disabled={!isDeviceOnline}
-                  className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white font-semibold text-sm shadow-lg shadow-emerald-950/40 transition-all"
+                  className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white font-semibold text-sm shadow-lg shadow-emerald-950/40 transition-all cursor-pointer"
                 >
                   <Video className="w-4 h-4" />
-                  <span>Start Monitoring</span>
+                  <span>Start 2-Way Monitoring</span>
                 </button>
               ) : (
                 <div className="bg-slate-850 border border-slate-700 rounded-xl p-4 shadow-2xl flex flex-col space-y-3 z-30 min-w-[260px]">
@@ -308,13 +400,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                     <button
                       onClick={() => handleSendMonitoringRequest(requestCamera, requestMic)}
                       disabled={!requestCamera && !requestMic}
-                      className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold"
+                      className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
                     >
-                      Send Request
+                      Connect Call
                     </button>
                     <button
                       onClick={() => setShowRequestConfig(false)}
-                      className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs"
+                      className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -327,7 +419,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           {monitoringState === 'requesting' && (
             <div className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm font-medium animate-pulse">
               <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Waiting for child approval...</span>
+              <span>Connecting to child device...</span>
             </div>
           )}
 
@@ -337,7 +429,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               {!isRecording ? (
                 <button
                   onClick={startRecording}
-                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-sm font-semibold shadow-md transition-colors"
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-sm font-semibold shadow-md transition-colors cursor-pointer"
                 >
                   <CircleDot className="w-4 h-4 text-white" />
                   <span>Start Recording</span>
@@ -345,7 +437,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               ) : (
                 <button
                   onClick={stopRecording}
-                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-sm font-semibold transition-colors animate-pulse"
+                  className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-sm font-semibold transition-colors animate-pulse cursor-pointer"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
                   <span>Stop Recording ({formatDuration(recordDuration)})</span>
@@ -355,10 +447,10 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               {/* Stop Monitoring Button */}
               <button
                 onClick={handleStopMonitoring}
-                className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium border border-slate-700 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium border border-slate-700 transition-colors cursor-pointer"
               >
                 <Square className="w-4 h-4" />
-                <span>Stop Monitoring</span>
+                <span>End Call</span>
               </button>
             </div>
           )}
@@ -391,32 +483,32 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         {/* Stream State Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
           <div className="flex items-center space-x-4">
-            {/* Camera Indicator */}
+            {/* Child Camera Indicator */}
             <div className="flex items-center space-x-1.5 text-xs font-medium">
               {cameraActive ? (
                 <>
                   <Video className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400">Camera: ON</span>
+                  <span className="text-emerald-400">Child Cam: ON</span>
                 </>
               ) : (
                 <>
                   <VideoOff className="w-4 h-4 text-slate-500" />
-                  <span className="text-slate-500">Camera: OFF</span>
+                  <span className="text-slate-500">Child Cam: OFF</span>
                 </>
               )}
             </div>
 
-            {/* Mic Indicator */}
+            {/* Child Mic Indicator */}
             <div className="flex items-center space-x-1.5 text-xs font-medium">
               {micActive ? (
                 <>
                   <Mic className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400">Microphone: ON</span>
+                  <span className="text-emerald-400">Child Mic: ON</span>
                 </>
               ) : (
                 <>
                   <MicOff className="w-4 h-4 text-slate-500" />
-                  <span className="text-slate-500">Microphone: OFF</span>
+                  <span className="text-slate-500">Child Mic: OFF</span>
                 </>
               )}
             </div>
@@ -424,7 +516,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
             {/* WebRTC State */}
             <div className="flex items-center space-x-1.5 text-xs font-medium text-slate-400">
               <Wifi className="w-4 h-4 text-blue-400" />
-              <span>WebRTC: </span>
+              <span>2-Way Call: </span>
               <span className={`font-mono uppercase font-semibold ${
                 webrtcState === 'connected' ? 'text-emerald-400' : 'text-slate-400'
               }`}>
@@ -434,7 +526,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* Audio Visualizer */}
+            {/* Audio Visualizer of Child Feed */}
             <AudioVisualizer stream={remoteStream} isActive={micActive} />
 
             {/* Session Duration Counter */}
@@ -447,24 +539,69 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           </div>
         </div>
 
-        {/* Video Canvas Container */}
-        <div className="w-full aspect-video max-h-[640px]">
+        {/* Video Canvas Container (Child Main Stream + Parent Floating PiP) */}
+        <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
           <VideoPlayer
             stream={remoteStream}
             isLive={monitoringState === 'active'}
             autoPlay={true}
-            muted={false}
+            muted={false} // Parent hears child!
             className="w-full h-full"
             fallbackMessage={
               !isDeviceOnline
                 ? 'Child device is offline. Connect child device from /child view.'
                 : monitoringState === 'requesting'
-                ? 'Request sent. Awaiting child approval on their screen...'
+                ? 'Connecting to child device...'
                 : monitoringState === 'idle'
-                ? 'Monitoring is idle. Click "Start Monitoring" to send a safety request.'
+                ? 'Monitoring is idle. Click "Start 2-Way Monitoring" to begin.'
                 : 'Waiting for media stream to establish...'
             }
           />
+
+          {/* Parent Self-View PiP Overlay (Available when active session is running) */}
+          {monitoringState === 'active' && (
+            <div className="absolute top-4 right-4 z-20 w-36 sm:w-48 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group">
+              <video
+                ref={parentVideoRef}
+                autoPlay
+                playsInline
+                muted={true} // Muted to avoid feedback loop
+                className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled ? '' : 'hidden'}`}
+              />
+              {!parentCamEnabled && (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-400 text-xs p-2 text-center">
+                  <User className="w-6 h-6 text-slate-500 mb-1" />
+                  <span>Cam Off</span>
+                </div>
+              )}
+
+              {/* Parent Floating Control Bar */}
+              <div className="absolute bottom-1 right-1 flex items-center space-x-1">
+                <button
+                  onClick={toggleParentMic}
+                  title={parentMicEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+                  className={`p-1 rounded-md text-white text-[10px] transition-colors ${
+                    parentMicEnabled ? 'bg-black/70 hover:bg-black text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                >
+                  {parentMicEnabled ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3" />}
+                </button>
+                <button
+                  onClick={toggleParentCam}
+                  title={parentCamEnabled ? 'Turn off your camera' : 'Turn on your camera'}
+                  className={`p-1 rounded-md text-white text-[10px] transition-colors ${
+                    parentCamEnabled ? 'bg-black/70 hover:bg-black text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                >
+                  {parentCamEnabled ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3" />}
+                </button>
+              </div>
+
+              <div className="absolute bottom-1 left-2 text-[10px] font-semibold text-slate-300 drop-shadow">
+                Parent (You)
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Active Recording Pill Indicator */}
@@ -492,7 +629,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         <div className="text-xs text-slate-500 flex items-start space-x-2 pt-2">
           <Sparkles className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
           <p>
-            GuardianLink is designed for cooperative, transparent family safety. Monitoring begins only when the child grants access on their device. When stopped by either party, camera and microphone access is revoked immediately.
+            GuardianLink 2-way call enables parent and student to see and speak with each other in real-time. The child has full control and can stop the session anytime, or press <strong>M</strong> to switch directly to ChatGPT.
           </p>
         </div>
       </div>
