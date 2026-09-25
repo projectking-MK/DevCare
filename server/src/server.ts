@@ -25,6 +25,7 @@ import {
 } from './pairing/pairingController';
 import { getIceConfiguration } from './webrtc/rtcConfig';
 import { initSocketServer } from './websocket/socketServer';
+import { isAllowedOrigin } from './utils/corsHelper';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -39,59 +40,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 // 1. Security Headers Middleware
 app.use(configureSecurityHeaders());
 
-// 2. CORS Configuration (Explicit origins, credentials enabled)
-const allowedOrigins = [
-  FRONTEND_URL,
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000'
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.example.com')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Origin not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-
-// 3. Parsers
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
-app.use(cookieParser());
-
-// 4. Rate Limiting on General API
-app.use('/api', generalApiRateLimiter);
-
-// 5. Health Check Endpoint (Complies with Requirement 32: status: "ok" only)
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok' });
-});
-
-// 6. Authentication Endpoints
-app.post('/api/auth/login', loginRateLimiter, loginHandler);
-app.get('/api/auth/me', requireParentAuth, getCurrentUserHandler);
-app.post('/api/auth/logout', logoutHandler);
-
-// 7. Temporary Pairing Endpoints
-app.post('/api/pairing/generate', requireParentAuth, generatePairingCodeHandler);
-app.get('/api/pairing/active', requireParentAuth, getActivePairingCodeHandler);
-app.post('/api/pairing/verify', pairingRateLimiter, verifyPairingCodeHandler);
-app.get('/api/devices', requireParentAuth, listPairedDevicesHandler);
-app.delete('/api/devices/:deviceId', requireParentAuth, unpairDeviceHandler);
-
-// 8. WebRTC ICE Server Configuration
-app.get('/api/webrtc/config', (_req: Request, res: Response) => {
-  res.status(200).json(getIceConfiguration());
-});
-
-// 9. Static Frontend Serving (in production or when client/dist exists)
+// 2. Static Frontend Assets Serving (served before CORS so JS/CSS and static files never fail with CORS errors)
 const clientDistPath = path.resolve(__dirname, '../../client/dist');
 const altClientDistPath = path.resolve(__dirname, '../public');
 const activeStaticPath = fs.existsSync(clientDistPath)
@@ -108,8 +57,55 @@ if (activeStaticPath) {
       }
     }
   }));
+}
 
-  // SPA fallback for HTML5 history API routes (/child, /login, /recordings, /sessions, etc.)
+// 3. CORS Configuration for API & WebSocket endpoints (Graceful rejection without throwing 500)
+app.use(cors({
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin, FRONTEND_URL)) {
+      callback(null, true);
+    } else {
+      logger.warn('cors_rejected_origin', { origin });
+      callback(null, false);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
+// 4. Parsers
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(cookieParser());
+
+// 5. Rate Limiting on General API
+app.use('/api', generalApiRateLimiter);
+
+// 6. Health Check Endpoint (Complies with Requirement 32: status: "ok" only)
+app.get('/health', (_req: Request, res: Response) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// 7. Authentication Endpoints
+app.post('/api/auth/login', loginRateLimiter, loginHandler);
+app.get('/api/auth/me', requireParentAuth, getCurrentUserHandler);
+app.post('/api/auth/logout', logoutHandler);
+
+// 8. Temporary Pairing Endpoints
+app.post('/api/pairing/generate', requireParentAuth, generatePairingCodeHandler);
+app.get('/api/pairing/active', requireParentAuth, getActivePairingCodeHandler);
+app.post('/api/pairing/verify', pairingRateLimiter, verifyPairingCodeHandler);
+app.get('/api/devices', requireParentAuth, listPairedDevicesHandler);
+app.delete('/api/devices/:deviceId', requireParentAuth, unpairDeviceHandler);
+
+// 9. WebRTC ICE Server Configuration
+app.get('/api/webrtc/config', (_req: Request, res: Response) => {
+  res.status(200).json(getIceConfiguration());
+});
+
+// 10. SPA fallback for HTML5 history API routes (/child, /login, /recordings, /sessions, etc.)
+if (activeStaticPath) {
   app.get('*', (req: Request, res: Response, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
       return next();
@@ -118,14 +114,14 @@ if (activeStaticPath) {
   });
 }
 
-// 10. Centralized Error Handlers
+// 11. Centralized Error Handlers
 app.use('/api/*', notFoundHandler);
 app.use(globalErrorHandler);
 
-// 11. Initialize Socket.IO Server
+// 12. Initialize Socket.IO Server
 initSocketServer(httpServer, FRONTEND_URL);
 
-// 12. Start HTTP/WS Server
+// 13. Start HTTP/WS Server
 httpServer.listen(PORT, '0.0.0.0', () => {
   logger.info('server_started', {
     port: PORT,
