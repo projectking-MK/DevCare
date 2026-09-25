@@ -15,8 +15,13 @@ import {
   User,
   Columns,
   LayoutGrid,
-  ArrowLeftRight
+  ArrowLeftRight,
+  ScreenShare,
+  ScreenShareOff,
+  Monitor,
+  MessageSquare
 } from 'lucide-react';
+import { InCallChat } from '../components/InCallChat';
 import { getSocket } from '../services/socket';
 import { WebRtcConnection, WebRtcConnectionState } from '../services/webrtc';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -52,6 +57,12 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const [layoutMode, setLayoutMode] = useState<'split' | 'pip'>('split');
   const [swapped, setSwapped] = useState(false);
 
+  // In-call chat & screen mirror states
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [isParentScreenSharing, setIsParentScreenSharing] = useState(false);
+  const [isChildScreenSharing, setIsChildScreenSharing] = useState(false);
+
   // Request options modal/state
   const [requestCamera, setRequestCamera] = useState(true);
   const [requestMic, setRequestMic] = useState(true);
@@ -62,6 +73,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const sessionStartTimeRef = useRef<number>(0);
   const sessionTimerRef = useRef<number | null>(null);
   const parentLocalStreamRef = useRef<MediaStream | null>(null);
+  const parentDisplayStreamRef = useRef<MediaStream | null>(null);
   const parentMediaPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const parentVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -213,11 +225,18 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       webrtcRef.current?.addIceCandidate(data.candidate);
     };
 
+    const handleScreenStatus = (data: { sessionId: string; sender: string; isSharing: boolean }) => {
+      if (data.sender === 'child') {
+        setIsChildScreenSharing(Boolean(data.isSharing));
+      }
+    };
+
     socket.on('monitoring:started', handleMonitoringStarted);
     socket.on('monitoring:denied', handleMonitoringDenied);
     socket.on('monitoring:stopped', handleMonitoringStopped);
     socket.on('webrtc:offer', handleOffer);
     socket.on('webrtc:ice_candidate', handleIceCandidate);
+    socket.on('screen:status', handleScreenStatus);
 
     return () => {
       socket.off('monitoring:started', handleMonitoringStarted);
@@ -225,6 +244,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       socket.off('monitoring:stopped', handleMonitoringStopped);
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:ice_candidate', handleIceCandidate);
+      socket.off('screen:status', handleScreenStatus);
     };
   }, [activeSessionId]);
 
@@ -292,6 +312,18 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       clearInterval(sessionTimerRef.current);
       sessionTimerRef.current = null;
     }
+
+    // Stop screen mirror stream if active
+    if (parentDisplayStreamRef.current) {
+      parentDisplayStreamRef.current.getTracks().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
+      parentDisplayStreamRef.current = null;
+    }
+    setIsParentScreenSharing(false);
+    setIsChildScreenSharing(false);
+    setIsChatOpen(false);
+    setUnreadChatCount(0);
 
     // Stop parent local stream tracks to kill camera/mic lights
     if (parentLocalStreamRef.current) {
@@ -389,6 +421,85 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
     }
   };
 
+  // Toggle Parent Screen Mirroring
+  const toggleParentScreenMirror = async () => {
+    if (isParentScreenSharing) {
+      stopParentScreenMirror();
+    } else {
+      await startParentScreenMirror();
+    }
+  };
+
+  const startParentScreenMirror = async () => {
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'always' } as any,
+        audio: false
+      });
+      const displayTrack = displayStream.getVideoTracks()[0];
+      if (!displayTrack) return;
+
+      parentDisplayStreamRef.current = displayStream;
+
+      displayTrack.onended = () => {
+        stopParentScreenMirror();
+      };
+
+      if (webrtcRef.current) {
+        await webrtcRef.current.replaceVideoTrack(displayTrack);
+      }
+
+      if (parentVideoRef.current) {
+        parentVideoRef.current.srcObject = displayStream;
+        parentVideoRef.current.play().catch(() => {});
+      }
+
+      setIsParentScreenSharing(true);
+
+      const socket = getSocket();
+      socket.emit('screen:status', {
+        sessionId: activeSessionId,
+        isSharing: true
+      });
+    } catch (err) {
+      console.warn('[Parent] Screen share cancelled or error:', err);
+    }
+  };
+
+  const stopParentScreenMirror = async () => {
+    if (parentDisplayStreamRef.current) {
+      parentDisplayStreamRef.current.getTracks().forEach((t) => {
+        try { t.stop(); } catch {}
+      });
+      parentDisplayStreamRef.current = null;
+    }
+
+    let camTrack: MediaStreamTrack | null = null;
+    if (parentLocalStreamRef.current) {
+      const tracks = parentLocalStreamRef.current.getVideoTracks();
+      if (tracks.length > 0) {
+        camTrack = tracks[0];
+      }
+    }
+
+    if (webrtcRef.current) {
+      await webrtcRef.current.replaceVideoTrack(camTrack);
+    }
+
+    if (parentVideoRef.current && parentLocalStreamRef.current) {
+      parentVideoRef.current.srcObject = parentLocalStreamRef.current;
+      parentVideoRef.current.play().catch(() => {});
+    }
+
+    setIsParentScreenSharing(false);
+
+    const socket = getSocket();
+    socket.emit('screen:status', {
+      sessionId: activeSessionId,
+      isSharing: false
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner / Device Bar */}
@@ -478,6 +589,48 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
 
           {monitoringState === 'active' && (
             <div className="flex flex-wrap items-center gap-2">
+              {/* Screen Mirroring Button */}
+              <button
+                onClick={toggleParentScreenMirror}
+                className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                  isParentScreenSharing
+                    ? 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400 text-white shadow-lg shadow-cyan-950/50 animate-pulse'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+                title={isParentScreenSharing ? 'Stop mirroring your screen' : 'Mirror your screen to child device'}
+              >
+                {isParentScreenSharing ? (
+                  <>
+                    <ScreenShareOff className="w-3.5 h-3.5 text-white" />
+                    <span>Stop Mirror</span>
+                  </>
+                ) : (
+                  <>
+                    <ScreenShare className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Mirror Screen</span>
+                  </>
+                )}
+              </button>
+
+              {/* In-Call Chat Button */}
+              <button
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                  isChatOpen
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/50'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+                title="Open in-call chat"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Chat</span>
+                {unreadChatCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-400 text-black text-[10px] font-black animate-bounce shadow">
+                    {unreadChatCount}
+                  </span>
+                )}
+              </button>
+
               {/* Layout Switcher Button */}
               <button
                 onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
@@ -654,10 +807,17 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 className="w-full h-full"
                 fallbackMessage="Waiting for child video feed..."
               />
-              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>{activeDeviceName} (Child)</span>
-              </div>
+              {isChildScreenSharing ? (
+                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl animate-pulse">
+                  <Monitor className="w-3.5 h-3.5 text-cyan-200" />
+                  <span>Child Screen Mirror Active</span>
+                </div>
+              ) : (
+                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{activeDeviceName} (Child)</span>
+                </div>
+              )}
               <div className="absolute bottom-3 left-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs">
                 {micActive ? (
                   <Mic className="w-3.5 h-3.5 text-emerald-400" />
@@ -675,9 +835,9 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 autoPlay
                 playsInline
                 muted={true} // Local muted to prevent feedback loop
-                className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled ? '' : 'hidden'}`}
+                className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled || isParentScreenSharing ? '' : 'hidden'}`}
               />
-              {!parentCamEnabled && (
+              {!parentCamEnabled && !isParentScreenSharing && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-6 text-center">
                   <div className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mb-2">
                     <User className="w-8 h-8 text-slate-400" />
@@ -686,10 +846,17 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                   <p className="text-xs text-slate-400 mt-1">Click the camera icon below to turn on video</p>
                 </div>
               )}
-              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
-                <User className="w-3.5 h-3.5 text-blue-400" />
-                <span>You (Parent)</span>
-              </div>
+              {isParentScreenSharing ? (
+                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl">
+                  <Monitor className="w-3.5 h-3.5 text-cyan-200" />
+                  <span>Your Mirrored Screen</span>
+                </div>
+              ) : (
+                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                  <User className="w-3.5 h-3.5 text-blue-400" />
+                  <span>You (Parent)</span>
+                </div>
+              )}
               {/* Parent Quick Cam & Mic Controls */}
               <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
                 <button
@@ -724,6 +891,12 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               className="w-full h-full"
               fallbackMessage="Waiting for child video feed..."
             />
+            {isChildScreenSharing && (
+              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl animate-pulse">
+                <Monitor className="w-3.5 h-3.5 text-cyan-200" />
+                <span>Child Screen Mirror Active</span>
+              </div>
+            )}
             {/* Top-Right Floating Parent PiP */}
             <div className="absolute top-4 right-4 z-20 w-40 sm:w-56 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group">
               <video
@@ -731,9 +904,9 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 autoPlay
                 playsInline
                 muted={true}
-                className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled ? '' : 'hidden'}`}
+                className={`w-full h-full object-cover transform -scale-x-100 ${parentCamEnabled || isParentScreenSharing ? '' : 'hidden'}`}
               />
-              {!parentCamEnabled && (
+              {!parentCamEnabled && !isParentScreenSharing && (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-400 text-xs p-2 text-center">
                   <User className="w-6 h-6 text-slate-500 mb-1" />
                   <span>Cam Off</span>
@@ -760,8 +933,9 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                   {parentCamEnabled ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3" />}
                 </button>
               </div>
-              <div className="absolute bottom-1 left-2 text-[10px] font-semibold text-slate-300 drop-shadow">
-                Parent (You)
+              <div className="absolute bottom-1 left-2 text-[10px] font-semibold text-slate-300 drop-shadow flex items-center space-x-1">
+                {isParentScreenSharing && <Monitor className="w-3 h-3 text-cyan-400" />}
+                <span>{isParentScreenSharing ? 'Your Screen' : 'Parent (You)'}</span>
               </div>
             </div>
           </div>
@@ -796,6 +970,18 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           </p>
         </div>
       </div>
+
+      {/* In-Call Chat Drawer / Overlay */}
+      <InCallChat
+        sessionId={activeSessionId}
+        role="parent"
+        peerName={activeDeviceName || 'Child'}
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        onUnreadCountChange={(count) => setUnreadChatCount(count)}
+        className="bottom-6 right-6 w-80 sm:w-96 max-w-[calc(100vw-3rem)]"
+      />
     </div>
   );
 };
+

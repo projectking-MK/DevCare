@@ -39,3 +39,13 @@ export interface ActiveMonitoringSession {
   startedAt?: Date;
   endedAt?: Date;
 }
+
+export interface InCallChatMessage {
+  id: string;
+  sessionId: string;
+  sender: 'parent' | 'child';
+  senderName: string;
+  text: string;
+  timestamp: string;
+}
+

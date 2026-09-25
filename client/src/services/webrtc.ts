@@ -149,6 +149,38 @@ export class WebRtcConnection {
   }
 
   /**
+   * Dynamically replace active outgoing video track (e.g. webcam <-> screen mirror)
+   */
+  async replaceVideoTrack(newTrack: MediaStreamTrack | null): Promise<boolean> {
+    if (!this.peerConnection) return false;
+
+    // Update localStream reference if localStream is set
+    if (this.localStream) {
+      const oldTracks = this.localStream.getVideoTracks();
+      oldTracks.forEach((t) => this.localStream?.removeTrack(t));
+      if (newTrack) {
+        this.localStream.addTrack(newTrack);
+      }
+    }
+
+    const senders = this.peerConnection.getSenders();
+    let videoSender = senders.find((s) => s.track && s.track.kind === 'video') ||
+                      senders.find((s) => s.track === null);
+
+    if (videoSender) {
+      await videoSender.replaceTrack(newTrack);
+      console.log('[WebRTC] Successfully replaced video track with:', newTrack ? newTrack.label : 'null');
+      return true;
+    } else if (newTrack) {
+      this.peerConnection.addTrack(newTrack, this.localStream || new MediaStream([newTrack]));
+      console.log('[WebRTC] Added new video track to peer connection:', newTrack.label);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Create WebRTC Offer (Child sender creates offer)
    */
   async createOffer(): Promise<RTCSessionDescriptionInit> {

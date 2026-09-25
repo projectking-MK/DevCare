@@ -4,6 +4,7 @@ import { sessionStore } from '../sessions/sessionStore';
 import { SESSION_COOKIE_NAME } from '../auth/authMiddleware';
 import { getIceConfiguration } from '../webrtc/rtcConfig';
 import { logger } from '../utils/logger';
+import { InCallChatMessage } from '../sessions/types';
 
 interface SocketAuthData {
   role?: 'parent' | 'child';
@@ -283,6 +284,85 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         io.to(`device_${session.deviceId}`).emit('webrtc:ice_restart', { sessionId: session.sessionId });
       } else if (socketData.role === 'child') {
         io.to(`parent_${session.parentId}`).emit('webrtc:ice_restart', { sessionId: session.sessionId });
+      }
+    });
+
+    // 8.5 In-Call Chat Messages
+    socket.on('chat:message', (payload: { sessionId: string; text: string; id?: string }) => {
+      if (!payload || !payload.sessionId || !payload.text || !payload.text.trim()) {
+        return;
+      }
+      const session = sessionStore.getMonitoringSession(payload.sessionId);
+      if (!session || session.status !== 'active') {
+        return;
+      }
+
+      const role = socketData.role;
+      if (!role) return;
+
+      const senderName = role === 'parent' 
+        ? 'Parent' 
+        : (sessionStore.getDevice(session.deviceId)?.deviceName || 'Child');
+
+      const messageData: InCallChatMessage = {
+        id: payload.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        sessionId: payload.sessionId,
+        sender: role,
+        senderName,
+        text: payload.text.trim(),
+        timestamp: new Date().toISOString()
+      };
+
+      sessionStore.addSessionMessage(payload.sessionId, messageData);
+
+      // Relay to parent room and child room
+      io.to(`parent_${session.parentId}`).emit('chat:message', messageData);
+      io.to(`device_${session.deviceId}`).emit('chat:message', messageData);
+
+      logger.info('in_call_chat_message', { sessionId: session.sessionId, sender: role, id: messageData.id });
+    });
+
+    // 8.6 In-Call Chat History Retrieval
+    socket.on('chat:get_history', (payload: { sessionId: string }, callback) => {
+      if (typeof callback === 'function' && payload?.sessionId) {
+        const messages = sessionStore.getSessionMessages(payload.sessionId);
+        callback({ success: true, messages });
+      }
+    });
+
+    // 8.7 Screen Mirror Status Notification
+    socket.on('screen:status', (payload: { sessionId: string; isSharing: boolean }) => {
+      if (!payload || !payload.sessionId) return;
+      const session = sessionStore.getMonitoringSession(payload.sessionId);
+      if (!session || session.status !== 'active') return;
+
+      const role = socketData.role;
+      if (!role) return;
+
+      const statusData = {
+        sessionId: payload.sessionId,
+        sender: role,
+        isSharing: Boolean(payload.isSharing)
+      };
+
+      if (role === 'parent') {
+        io.to(`device_${session.deviceId}`).emit('screen:status', statusData);
+      } else if (role === 'child') {
+        io.to(`parent_${session.parentId}`).emit('screen:status', statusData);
+      }
+
+      logger.info('screen_status_update', statusData);
+    });
+
+    // 8.8 Parent Requests Child to Screen Mirror
+    socket.on('screen:request_mirror', (payload: { sessionId: string }) => {
+      if (!payload || !payload.sessionId) return;
+      const session = sessionStore.getMonitoringSession(payload.sessionId);
+      if (!session || session.status !== 'active') return;
+
+      if (socketData.role === 'parent') {
+        io.to(`device_${session.deviceId}`).emit('screen:request_mirror', { sessionId: payload.sessionId });
+        logger.info('screen_mirror_requested_by_parent', { sessionId: payload.sessionId, deviceId: session.deviceId });
       }
     });
 

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { ParentSession, PairedDevice, ActiveMonitoringSession } from './types';
+import { ParentSession, PairedDevice, ActiveMonitoringSession, InCallChatMessage } from './types';
 import { logger } from '../utils/logger';
 
 // Session lifetime limits (Persists until user clicks Logout)
@@ -16,6 +16,7 @@ class SessionStore {
   private authenticatedSessions = new Map<string, ParentSession>();
   private pairedDevices = new Map<string, PairedDevice>();
   private activeMonitoringSessions = new Map<string, ActiveMonitoringSession>();
+  private sessionMessages = new Map<string, InCallChatMessage[]>();
   private devicesFilePath: string;
   private sessionsFilePath: string;
 
@@ -285,11 +286,28 @@ class SessionStore {
       existing.cameraActive = false;
       existing.micActive = false;
       this.activeMonitoringSessions.delete(sessionId);
+      this.sessionMessages.delete(sessionId);
       logger.info('monitoring_session_terminated', { sessionId, deviceId: existing.deviceId });
       return existing;
     }
     return null;
   }
+
+  // --- In-Call Chat Messages ---
+
+  addSessionMessage(sessionId: string, msg: InCallChatMessage): void {
+    const list = this.sessionMessages.get(sessionId) || [];
+    list.push(msg);
+    if (list.length > 200) {
+      list.shift();
+    }
+    this.sessionMessages.set(sessionId, list);
+  }
+
+  getSessionMessages(sessionId: string): InCallChatMessage[] {
+    return this.sessionMessages.get(sessionId) || [];
+  }
+
 
   // Periodic cleanup of expired parent sessions (past 30-day hard limit)
   private cleanupExpired(): void {

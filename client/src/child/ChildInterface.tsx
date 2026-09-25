@@ -354,6 +354,7 @@ export const ChildInterface: React.FC = () => {
           connectionState={webrtcState}
           onStopMonitoring={handleChildStop}
           sessionId={activeSessionId}
+          webrtcConnection={webrtcRef.current}
         />
       </>
     );
