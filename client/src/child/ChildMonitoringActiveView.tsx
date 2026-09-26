@@ -750,8 +750,8 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
               </div>
             </div>
 
-            {/* Top-Right Floating Secondary PiP Card */}
-            <div className="absolute top-4 right-4 z-20 w-40 sm:w-56 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group/pip">
+            {/* Top-Right Floating Secondary PiP Card (Offset below top-right M button) */}
+            <div className="absolute top-20 right-4 sm:top-22 sm:right-6 z-20 w-40 sm:w-56 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group/pip">
               <video
                 ref={!swapped ? localVideoRef : remoteVideoRef}
                 autoPlay
@@ -825,7 +825,140 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
       </div>
 
       {/* ======================================================== */}
-      {/* 3. IN-CALL CHAT DRAWER / OVERLAY                           */}
+      {/* 3. FULLSCREEN FLOATING CONTROL BAR                        */}
+      {/* Provides seamless chat, media & call controls in Fullscreen*/}
+      {/* ======================================================== */}
+      {isFullscreen && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[65] flex items-center space-x-2 bg-slate-950/90 backdrop-blur-xl border border-slate-700/80 px-4 py-2.5 rounded-2xl shadow-2xl animate-fadeIn">
+          {/* Fullscreen Chat Toggle Button */}
+          <button
+            onClick={() => setIsChatOpen(!isChatOpen)}
+            className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              isChatOpen
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/50'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title={isChatOpen ? 'Close in-call chat' : 'Open in-call chat'}
+          >
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
+            <span>Chat</span>
+            {unreadChatCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-400 text-black text-[10px] font-black animate-pulse">
+                {unreadChatCount}
+              </span>
+            )}
+          </button>
+
+          {/* Student Mic Toggle */}
+          <button
+            onClick={toggleLocalMic}
+            className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer border ${
+              localMicEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+            }`}
+            title={localMicEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+          >
+            {localMicEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+          </button>
+
+          {/* Student Cam Toggle */}
+          <button
+            onClick={toggleLocalCam}
+            className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer border ${
+              localCamEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+            }`}
+            title={localCamEnabled ? 'Turn off camera' : 'Turn on camera'}
+          >
+            {localCamEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+          </button>
+
+          {/* Parent Audio Toggle */}
+          <button
+            onClick={() => setIsMuted(!isMuted)}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+            title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
+          >
+            {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+          </button>
+
+          {/* Screen Mirror Toggle */}
+          <button
+            onClick={toggleChildScreenMirror}
+            className={`p-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              isChildScreenSharing ? 'bg-cyan-600 text-white border-cyan-400 animate-pulse' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title={isChildScreenSharing ? 'Stop Screen Mirror' : 'Mirror Screen to Parent'}
+          >
+            {isChildScreenSharing ? <ScreenShareOff className="w-4 h-4" /> : <ScreenShare className="w-4 h-4 text-cyan-400" />}
+          </button>
+
+          {/* Layout Mode (Split / PiP) */}
+          <button
+            onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+            title={layoutMode === 'split' ? 'Switch to PiP View' : 'Switch to Split (50/50) View'}
+          >
+            {layoutMode === 'split' ? <Columns className="w-4 h-4 text-emerald-400" /> : <LayoutGrid className="w-4 h-4 text-cyan-400" />}
+          </button>
+
+          {/* Swap Video */}
+          <button
+            onClick={() => setSwapped(!swapped)}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+            title="Swap video positions"
+          >
+            <ArrowLeftRight className="w-4 h-4 text-slate-300" />
+          </button>
+
+          {/* Exit Fullscreen Button */}
+          <button
+            onClick={toggleFullscreen}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 text-xs font-semibold transition-colors cursor-pointer"
+            title="Exit Fullscreen"
+          >
+            <Minimize className="w-4 h-4" />
+          </button>
+
+          {/* End Call Button */}
+          <button
+            onClick={onStopMonitoring}
+            className="p-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+            title="End Call"
+          >
+            <Square className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 4. FLOATING QUICK CHAT TRIGGER BUTTON                      */}
+      {/* Stays docked at bottom-left when chat is closed            */}
+      {/* ======================================================== */}
+      {sessionId && !isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed bottom-6 left-6 z-[60] flex items-center space-x-2 px-3.5 py-2.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-100 backdrop-blur-md border border-slate-700/80 shadow-2xl hover:border-emerald-500/50 hover:scale-105 active:scale-95 transition-all cursor-pointer animate-fadeIn"
+          title="Open In-Call Chat"
+        >
+          <div className="relative">
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-black text-[10px] font-black flex items-center justify-center animate-bounce shadow">
+                {unreadChatCount}
+              </span>
+            )}
+          </div>
+          <span className="text-xs font-bold">Chat</span>
+          {unreadChatCount > 0 && (
+            <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full border border-emerald-500/20">
+              {unreadChatCount} new
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* ======================================================== */}
+      {/* 5. IN-CALL CHAT DRAWER / OVERLAY                           */}
+      {/* Positioned at bottom-left with fixed z-[65]                */}
       {/* ======================================================== */}
       {sessionId && (
         <InCallChat
@@ -835,16 +968,16 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
           onUnreadCountChange={(count) => setUnreadChatCount(count)}
-          className={`bottom-20 left-4 sm:left-6 w-80 sm:w-96 max-w-[calc(100vw-2rem)] ${
-            isFullscreen ? 'fixed bottom-6 left-6' : ''
-          }`}
+          className="bottom-20 left-4 sm:left-6 w-80 sm:w-96 max-w-[calc(100vw-2rem)]"
         />
       )}
 
       {/* ======================================================== */}
-      {/* 4. THE "M" BUTTON (Instant < 1 Second Redirection)        */}
+      {/* 6. THE "M" BUTTON (Instant < 1 Second Redirection)        */}
+      {/* Positioned at TOP-RIGHT so it NEVER disturbs chatting!     */}
+      {/* Visible in both regular mode and full screen call          */}
       {/* ======================================================== */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center">
+      <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[75] flex items-center">
         <button
           id="m-chatgpt-button"
           onPointerDown={(e) => {
@@ -859,21 +992,27 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
             e.preventDefault();
             handleMButtonClick();
           }}
-          title="Press 'M' or click here to switch to ChatGPT instantly (< 1s)"
+          title="Press 'M' key or click here to switch to ChatGPT instantly (< 1s)"
           aria-label="Open ChatGPT"
-          className="group relative flex items-center justify-center w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-500 hover:from-emerald-500 hover:to-cyan-400 text-white font-black text-2xl sm:text-3xl shadow-2xl shadow-emerald-950/80 border-2 border-emerald-300/40 hover:scale-105 active:scale-95 transition-all duration-150 cursor-pointer"
+          className="group relative flex items-center space-x-2 px-3.5 py-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 hover:from-emerald-500 hover:to-cyan-400 text-white font-bold shadow-2xl shadow-emerald-950/80 border-2 border-emerald-300/40 hover:scale-105 active:scale-95 transition-all duration-150 cursor-pointer"
         >
-          <span className="tracking-tighter font-black drop-shadow-md">M</span>
+          <div className="w-6 h-6 rounded-xl bg-black/30 flex items-center justify-center font-black text-sm text-emerald-200">
+            M
+          </div>
+          <div className="flex flex-col text-left leading-tight pr-0.5">
+            <span className="text-xs font-black tracking-tight text-white flex items-center space-x-1">
+              <span>ChatGPT</span>
+              <ExternalLink className="w-3 h-3 text-cyan-200" />
+            </span>
+            <span className="text-[9px] font-semibold text-emerald-100 opacity-90">Press 'M' key</span>
+          </div>
 
           {/* Hover Tooltip Badge */}
-          <div className="absolute -top-12 right-0 px-3 py-1.5 rounded-xl bg-slate-900/95 border border-slate-700 text-xs font-semibold text-emerald-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity shadow-2xl pointer-events-none flex items-center space-x-1.5">
-            <span>Instant to ChatGPT (M)</span>
+          <div className="absolute top-12 right-0 px-3 py-1.5 rounded-xl bg-slate-900/95 border border-slate-700 text-xs font-semibold text-emerald-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity shadow-2xl pointer-events-none flex items-center space-x-1.5">
+            <span>Instant to ChatGPT (&lt; 1s)</span>
             <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
           </div>
         </button>
-        <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase mt-1 drop-shadow">
-          ChatGPT [M]
-        </span>
       </div>
     </div>
   );

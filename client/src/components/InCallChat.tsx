@@ -187,7 +187,7 @@ export const InCallChat: React.FC<InCallChatProps> = ({
 
   return (
     <div
-      className={`fixed sm:absolute z-50 flex flex-col bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${className}`}
+      className={`fixed z-[70] flex flex-col bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${className}`}
       style={{ minHeight: '360px', maxHeight: '520px' }}
     >
       {/* Chat Header */}

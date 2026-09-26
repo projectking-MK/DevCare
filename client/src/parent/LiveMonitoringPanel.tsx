@@ -19,7 +19,11 @@ import {
   ScreenShare,
   ScreenShareOff,
   Monitor,
-  MessageSquare
+  MessageSquare,
+  Maximize,
+  Minimize,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { InCallChat } from '../components/InCallChat';
 import { getSocket } from '../services/socket';
@@ -62,6 +66,8 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [isParentScreenSharing, setIsParentScreenSharing] = useState(false);
   const [isChildScreenSharing, setIsChildScreenSharing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Request options modal/state
   const [requestCamera, setRequestCamera] = useState(true);
@@ -93,6 +99,31 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       socket.off('connect', authenticate);
     };
   }, []);
+
+  // Track Fullscreen status
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Fullscreen toggle handler
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.warn('[Parent Panel] Fullscreen error:', err);
+    }
+  };
 
   // MediaRecorder Hook for local storage in IndexedDB
   const {
@@ -501,7 +532,12 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div
+      ref={containerRef}
+      className={`transition-all duration-300 ${
+        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen bg-black overflow-hidden p-3' : 'space-y-6'
+      }`}
+    >
       {/* Top Banner / Device Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
@@ -678,6 +714,16 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                   <span>Stop ({formatDuration(recordDuration)})</span>
                 </button>
               )}
+
+              {/* Fullscreen Button */}
+              <button
+                onClick={toggleFullscreen}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+                title={isFullscreen ? 'Exit Fullscreen' : 'Full Screen'}
+              >
+                {isFullscreen ? <Minimize className="w-3.5 h-3.5 text-amber-400" /> : <Maximize className="w-3.5 h-3.5 text-emerald-400" />}
+                <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full'}</span>
+              </button>
 
               {/* Stop Monitoring Button */}
               <button
@@ -971,6 +1017,144 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         </div>
       </div>
 
+      {/* ======================================================== */}
+      {/* FULLSCREEN FLOATING CONTROL BAR FOR PARENT                 */}
+      {/* ======================================================== */}
+      {isFullscreen && monitoringState === 'active' && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[65] flex items-center space-x-2 bg-slate-950/90 backdrop-blur-xl border border-slate-700/80 px-4 py-2.5 rounded-2xl shadow-2xl animate-fadeIn">
+          {/* In-Call Chat Button */}
+          <button
+            onClick={() => setIsChatOpen(!isChatOpen)}
+            className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              isChatOpen
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/50'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title={isChatOpen ? 'Close in-call chat' : 'Open in-call chat'}
+          >
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
+            <span>Chat</span>
+            {unreadChatCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-400 text-black text-[10px] font-black animate-pulse">
+                {unreadChatCount}
+              </span>
+            )}
+          </button>
+
+          {/* Parent Cam Toggle */}
+          <button
+            onClick={toggleParentCam}
+            className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer border ${
+              parentCamEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+            }`}
+            title={parentCamEnabled ? 'Turn off camera' : 'Turn on camera'}
+          >
+            {parentCamEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+          </button>
+
+          {/* Parent Mic Toggle */}
+          <button
+            onClick={toggleParentMic}
+            className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer border ${
+              parentMicEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+            }`}
+            title={parentMicEnabled ? 'Mute microphone' : 'Unmute microphone'}
+          >
+            {parentMicEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+          </button>
+
+          {/* Screen Mirror Toggle */}
+          <button
+            onClick={toggleParentScreenMirror}
+            className={`p-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+              isParentScreenSharing ? 'bg-cyan-600 text-white border-cyan-400 animate-pulse' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title={isParentScreenSharing ? 'Stop Mirror' : 'Mirror Screen to Child'}
+          >
+            {isParentScreenSharing ? <ScreenShareOff className="w-4 h-4" /> : <ScreenShare className="w-4 h-4 text-cyan-400" />}
+          </button>
+
+          {/* Layout Mode (Split / PiP) */}
+          <button
+            onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+            title={layoutMode === 'split' ? 'Switch to PiP View' : 'Switch to Split (50/50) View'}
+          >
+            {layoutMode === 'split' ? <Columns className="w-4 h-4 text-emerald-400" /> : <LayoutGrid className="w-4 h-4 text-cyan-400" />}
+          </button>
+
+          {/* Swap Video */}
+          <button
+            onClick={() => setSwapped(!swapped)}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+            title="Swap video positions"
+          >
+            <ArrowLeftRight className="w-4 h-4 text-slate-300" />
+          </button>
+
+          {/* Local Recording Button */}
+          {!isRecording ? (
+            <button
+              onClick={startRecording}
+              className="p-2 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+              title="Record locally"
+            >
+              <CircleDot className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={stopRecording}
+              className="p-2 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-xs font-semibold transition-colors animate-pulse cursor-pointer"
+              title="Stop Recording"
+            >
+              <Square className="w-3 h-3 fill-current" />
+            </button>
+          )}
+
+          {/* Exit Fullscreen Button */}
+          <button
+            onClick={toggleFullscreen}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 text-xs font-semibold transition-colors cursor-pointer"
+            title="Exit Fullscreen"
+          >
+            <Minimize className="w-4 h-4" />
+          </button>
+
+          {/* End Call Button */}
+          <button
+            onClick={handleStopMonitoring}
+            className="p-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+            title="End Session"
+          >
+            <Square className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Floating Quick Chat Trigger Button for Parent */}
+      {monitoringState === 'active' && !isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed bottom-6 right-6 z-[60] flex items-center space-x-2 px-3.5 py-2.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-100 backdrop-blur-md border border-slate-700/80 shadow-2xl hover:border-emerald-500/50 hover:scale-105 active:scale-95 transition-all cursor-pointer animate-fadeIn"
+          title="Open In-Call Chat"
+        >
+          <div className="relative">
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-black text-[10px] font-black flex items-center justify-center animate-bounce shadow">
+                {unreadChatCount}
+              </span>
+            )}
+          </div>
+          <span className="text-xs font-bold">Chat</span>
+          {unreadChatCount > 0 && (
+            <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full border border-emerald-500/20">
+              {unreadChatCount} new
+            </span>
+          )}
+        </button>
+      )}
+
       {/* In-Call Chat Drawer / Overlay */}
       <InCallChat
         sessionId={activeSessionId}
@@ -979,7 +1163,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
         onUnreadCountChange={(count) => setUnreadChatCount(count)}
-        className="bottom-6 right-6 w-80 sm:w-96 max-w-[calc(100vw-3rem)]"
+        className="bottom-20 right-4 sm:right-6 w-80 sm:w-96 max-w-[calc(100vw-3rem)]"
       />
     </div>
   );
