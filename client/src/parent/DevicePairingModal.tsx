@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Smartphone, Clock, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { X, Smartphone, Clock, RefreshCw, CheckCircle2, ShieldAlert, QrCode, Hash } from 'lucide-react';
+import QRCode from 'qrcode';
 import { pairingApi } from '../services/api';
 
 interface DevicePairingModalProps {
@@ -10,6 +11,8 @@ interface DevicePairingModalProps {
 
 export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, onClose }) => {
   const [code, setCode] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'qr' | 'code'>('qr');
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
   const [loading, setLoading] = useState(false);
@@ -24,6 +27,21 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
       const expDate = new Date(res.expiresAt);
       setExpiresAt(expDate);
       setSecondsRemaining(Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)));
+
+      // Generate scannable QR Code containing direct pairing URL
+      const pairingUrl = `${window.location.origin}/child?code=${res.code}`;
+      try {
+        const url = await QRCode.toDataURL(pairingUrl, {
+          width: 256,
+          margin: 1,
+          color: { dark: '#022c22', light: '#ffffff' }
+        });
+        setQrDataUrl(url);
+      } catch {
+        // Fallback with just code
+        const fallbackUrl = await QRCode.toDataURL(res.code, { width: 256, margin: 1 });
+        setQrDataUrl(fallbackUrl);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate code.');
     } finally {
@@ -100,42 +118,91 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
           </div>
         )}
 
+        {/* Method Switcher Tabs */}
+        <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 mb-5">
+          <button
+            type="button"
+            onClick={() => setActiveTab('qr')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'qr'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <QrCode className="w-4 h-4" />
+            <span>Scan QR Code</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('code')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === 'code'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Hash className="w-4 h-4" />
+            <span>6-Digit Code</span>
+          </button>
+        </div>
+
         {/* Instructions */}
         <div className="space-y-4 mb-6">
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Open <span className="font-mono text-emerald-400 bg-slate-800 px-1.5 py-0.5 rounded">/child</span> on your child's smartphone, tablet, or browser, and enter this 6-digit code:
+          <p className="text-xs text-slate-300 leading-relaxed text-center">
+            {activeTab === 'qr'
+              ? 'On your child device, open /child and scan this QR code with the camera:'
+              : 'On your child device, open /child and enter this 6-digit code:'}
           </p>
 
-          {/* 6-Digit Display */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 text-center shadow-inner">
+          {/* Display Card */}
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 text-center shadow-inner flex flex-col items-center justify-center">
             {loading ? (
-              <div className="flex justify-center items-center py-4 text-slate-400 space-x-2">
-                <RefreshCw className="w-5 h-5 animate-spin" />
-                <span className="text-sm">Generating secure code...</span>
+              <div className="flex flex-col items-center justify-center py-8 text-slate-400 space-y-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" />
+                <span className="text-sm">Generating secure QR & code...</span>
               </div>
             ) : isExpired ? (
-              <div className="py-2">
-                <p className="text-sm font-semibold text-amber-400 mb-2">Code Expired</p>
+              <div className="py-4 space-y-3">
+                <p className="text-sm font-semibold text-amber-400">Pairing Code Expired</p>
                 <button
+                  type="button"
                   onClick={fetchCode}
-                  className="inline-flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-colors"
+                  className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Generate New Code</span>
+                  <span>Generate New QR & Code</span>
                 </button>
               </div>
             ) : (
-              <div>
-                <div className="flex justify-center space-x-2 sm:space-x-3 mb-3">
-                  {code?.split('').map((char, index) => (
-                    <span
-                      key={index}
-                      className="w-10 h-14 sm:w-12 sm:h-16 flex items-center justify-center font-mono font-bold text-2xl sm:text-3xl text-emerald-400 bg-slate-900 border border-emerald-500/30 rounded-lg shadow-sm"
-                    >
-                      {char}
-                    </span>
-                  ))}
-                </div>
+              <div className="w-full flex flex-col items-center space-y-3">
+                {activeTab === 'qr' && qrDataUrl ? (
+                  <div className="p-3 bg-white rounded-2xl shadow-xl border-4 border-emerald-500/30">
+                    <img
+                      src={qrDataUrl}
+                      alt="Pairing QR Code"
+                      className="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-lg"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex justify-center space-x-2 sm:space-x-3 my-2">
+                    {code?.split('').map((char, index) => (
+                      <span
+                        key={index}
+                        className="w-10 h-14 sm:w-12 sm:h-16 flex items-center justify-center font-mono font-bold text-2xl sm:text-3xl text-emerald-400 bg-slate-900 border border-emerald-500/30 rounded-xl shadow-sm"
+                      >
+                        {char}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Direct 6-digit code pill shown under QR as well */}
+                {activeTab === 'qr' && code && (
+                  <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs">
+                    <span className="text-slate-400">Or enter code:</span>
+                    <span className="font-mono font-bold text-emerald-400 tracking-wider">{code}</span>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-center space-x-1.5 text-xs text-slate-400">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />

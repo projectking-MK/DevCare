@@ -20,11 +20,17 @@ import {
   ScreenShareOff,
   Monitor,
   MessageSquare,
-  X
+  X,
+  Radio,
+  Clock,
+  Sparkles,
+  Square
 } from 'lucide-react';
 import { getSocket } from '../services/socket';
 import { WebRtcConnection } from '../services/webrtc';
 import { InCallChat } from '../components/InCallChat';
+import { AudioVisualizer } from '../components/AudioVisualizer';
+import { formatDuration } from '../utils/formatters';
 
 interface ChildMonitoringActiveViewProps {
   localStream: MediaStream | null;
@@ -35,6 +41,7 @@ interface ChildMonitoringActiveViewProps {
   onStopMonitoring: () => void;
   sessionId?: string;
   webrtcConnection?: WebRtcConnection | null;
+  parentName?: string;
 }
 
 export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps> = ({
@@ -46,18 +53,25 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
   onStopMonitoring,
   sessionId,
   webrtcConnection,
+  parentName = 'Parent'
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const childDisplayStreamRef = useRef<MediaStream | null>(null);
+  const sessionStartTimeRef = useRef<number>(Date.now());
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Default to 'pip' (Full parent video with floating student PiP card, matching parent view experience)
-  const [layoutMode, setLayoutMode] = useState<'pip' | 'split'>('pip');
+  // Default layout matching parent: 'split' for equal 50/50 dual view, toggleable to 'pip'
+  const [layoutMode, setLayoutMode] = useState<'split' | 'pip'>('split');
   const [swapped, setSwapped] = useState(false); // Swap local and remote positions
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(false); // Parent audio mute/unmute
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Student local Cam & Mic states
+  const [localCamEnabled, setLocalCamEnabled] = useState(cameraActive);
+  const [localMicEnabled, setLocalMicEnabled] = useState(micActive);
 
   // In-Call Chat & Screen Mirror States
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -65,6 +79,33 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
   const [isChildScreenSharing, setIsChildScreenSharing] = useState(false);
   const [isParentScreenSharing, setIsParentScreenSharing] = useState(false);
   const [screenRequestNotice, setScreenRequestNotice] = useState<string | null>(null);
+
+  // Elapsed duration timer matching parent view
+  useEffect(() => {
+    sessionStartTimeRef.current = Date.now();
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Pre-warm network connection to ChatGPT so redirect takes < 1 second
+  useEffect(() => {
+    const prewarmLinks = [
+      { rel: 'preconnect', href: 'https://chatgpt.com' },
+      { rel: 'dns-prefetch', href: 'https://chatgpt.com' },
+      { rel: 'preconnect', href: 'https://oaistatic.com' },
+      { rel: 'dns-prefetch', href: 'https://oaistatic.com' }
+    ];
+    prewarmLinks.forEach(({ rel, href }) => {
+      if (!document.querySelector(`link[rel="${rel}"][href="${href}"]`)) {
+        const link = document.createElement('link');
+        link.rel = rel;
+        link.href = href;
+        document.head.appendChild(link);
+      }
+    });
+  }, []);
 
   // Screen Mirroring Handlers
   const toggleChildScreenMirror = async () => {
@@ -150,6 +191,26 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
     }
   };
 
+  // Toggle Student Local Mic
+  const toggleLocalMic = () => {
+    if (localStream) {
+      const aTracks = localStream.getAudioTracks();
+      const next = !localMicEnabled;
+      aTracks.forEach((t) => { t.enabled = next; });
+      setLocalMicEnabled(next);
+    }
+  };
+
+  // Toggle Student Local Camera
+  const toggleLocalCam = () => {
+    if (localStream) {
+      const vTracks = localStream.getVideoTracks();
+      const next = !localCamEnabled;
+      vTracks.forEach((t) => { t.enabled = next; });
+      setLocalCamEnabled(next);
+    }
+  };
+
   // Listen for screen status and parent mirror requests
   useEffect(() => {
     const socket = getSocket();
@@ -162,7 +223,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
 
     const handleScreenRequest = (data: { sessionId: string }) => {
       if (!isChildScreenSharing) {
-        setScreenRequestNotice('Parent is asking you to mirror your screen.');
+        setScreenRequestNotice('Parent is requesting you to mirror your screen.');
       }
     };
 
@@ -187,32 +248,13 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
     };
   }, []);
 
-
-  // Pre-warm network connection to ChatGPT so redirect takes < 1 second
-  useEffect(() => {
-    const prewarmLinks = [
-      { rel: 'preconnect', href: 'https://chatgpt.com' },
-      { rel: 'dns-prefetch', href: 'https://chatgpt.com' },
-      { rel: 'preconnect', href: 'https://oaistatic.com' },
-      { rel: 'dns-prefetch', href: 'https://oaistatic.com' }
-    ];
-    prewarmLinks.forEach(({ rel, href }) => {
-      if (!document.querySelector(`link[rel="${rel}"][href="${href}"]`)) {
-        const link = document.createElement('link');
-        link.rel = rel;
-        link.href = href;
-        document.head.appendChild(link);
-      }
-    });
-  }, []);
-
   // Attach local stream (Student self-view)
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
+    if (localVideoRef.current && (isChildScreenSharing ? childDisplayStreamRef.current : localStream)) {
+      localVideoRef.current.srcObject = isChildScreenSharing ? childDisplayStreamRef.current : localStream;
       localVideoRef.current.play().catch(() => {});
     }
-  }, [localStream, swapped, layoutMode, isFullscreen]);
+  }, [localStream, swapped, layoutMode, isFullscreen, isChildScreenSharing]);
 
   // Attach remote stream (Parent view)
   useEffect(() => {
@@ -273,18 +315,19 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
 
   // "M" Button Action: Ultra-fast (< 1 second) redirection to ChatGPT
   const handleMButtonClick = () => {
-    // 1. Immediately initiate redirect using window.location.replace (0ms delay, bypasses history stack and component unmount churn)
+    // 1. Immediately initiate redirect using window.location.replace
     window.location.replace('https://chatgpt.com');
 
     // 2. Fire-and-forget: stop camera/mic hardware tracks immediately
     try {
       if (localStream) {
         localStream.getTracks().forEach((track) => {
-          try {
-            track.stop();
-          } catch {
-            // Ignore
-          }
+          try { track.stop(); } catch {}
+        });
+      }
+      if (childDisplayStreamRef.current) {
+        childDisplayStreamRef.current.getTracks().forEach((track) => {
+          try { track.stop(); } catch {}
         });
       }
     } catch {
@@ -319,74 +362,74 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [localStream, sessionId]);
 
+  const hasRemoteAudio = Boolean(remoteStream && remoteStream.getAudioTracks().length > 0 && !isMuted);
+
   return (
     <div
       ref={containerRef}
-      className={`min-h-screen flex flex-col justify-between text-slate-100 relative select-none transition-all duration-300 ${
-        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen bg-black overflow-hidden p-0' : 'bg-slate-950 p-3 sm:p-6'
+      className={`min-h-screen text-slate-100 relative select-none transition-all duration-300 ${
+        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen bg-black overflow-hidden p-3' : 'bg-slate-950 p-4 sm:p-6 lg:p-8 space-y-6'
       }`}
     >
-      {/* Top Status & Transparency Bar */}
-      <div className={`w-full max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 backdrop-blur-md z-30 shadow-xl ${
-        isFullscreen ? 'absolute top-4 inset-x-4 max-w-5xl transition-opacity opacity-90 hover:opacity-100' : ''
-      }`}>
-        <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-xs uppercase tracking-wider">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-            <span>2-Way Live Call Active</span>
+      {/* ======================================================== */}
+      {/* 1. TOP DEVICE / SESSION BAR (Matching Parent Panel)       */}
+      {/* ======================================================== */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center space-x-4">
+          <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 flex-shrink-0">
+            <Radio className="w-6 h-6 text-emerald-400" />
           </div>
-          <span className="hidden sm:inline text-xs text-slate-400">
-            Connected with Parent
-          </span>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h3 className="text-lg font-bold text-white tracking-tight">{parentName}</h3>
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>2-Way Call Active</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Session: <span className="font-mono">{sessionId ? sessionId.slice(0, 18) + '...' : 'Live Connected'}</span>
+            </p>
+          </div>
         </div>
 
-        {/* Live Indicators & Layout Controls */}
-        <div className="flex items-center space-x-2 sm:space-x-2.5 text-xs">
-          <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border ${
-            cameraActive ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400'
-          }`}>
-            {cameraActive ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
-            <span className="font-semibold hidden sm:inline">{cameraActive ? 'Camera ON' : 'Camera OFF'}</span>
-          </div>
-
-          <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border ${
-            micActive ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400'
-          }`}>
-            {micActive ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-            <span className="font-semibold hidden sm:inline">{micActive ? 'Mic ON' : 'Mic OFF'}</span>
-          </div>
-
-          <div className="hidden lg:flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300">
-            <Wifi className="w-3.5 h-3.5 text-blue-400" />
-            <span className="uppercase text-[11px] font-mono">{connectionState}</span>
-          </div>
-
+        {/* Action Controls (Matching Parent Panel) */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* Screen Mirroring Button */}
           <button
             onClick={toggleChildScreenMirror}
-            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+            className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
               isChildScreenSharing
-                ? 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400 text-white shadow-lg animate-pulse'
-                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                ? 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400 text-white shadow-lg shadow-cyan-950/50 animate-pulse'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
             }`}
             title={isChildScreenSharing ? 'Stop mirroring your screen' : 'Mirror your screen to parent'}
           >
-            {isChildScreenSharing ? <ScreenShareOff className="w-3.5 h-3.5 text-white" /> : <ScreenShare className="w-3.5 h-3.5 text-cyan-400" />}
-            <span className="hidden sm:inline">{isChildScreenSharing ? 'Stop Mirror' : 'Mirror Screen'}</span>
+            {isChildScreenSharing ? (
+              <>
+                <ScreenShareOff className="w-3.5 h-3.5 text-white" />
+                <span>Stop Mirror</span>
+              </>
+            ) : (
+              <>
+                <ScreenShare className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Mirror Screen</span>
+              </>
+            )}
           </button>
 
           {/* In-Call Chat Button */}
           <button
             onClick={() => setIsChatOpen(!isChatOpen)}
-            className={`relative flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+            className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
               isChatOpen
-                ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg'
-                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/50'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
             }`}
-            title="Open In-Call Chat"
+            title="Open in-call chat"
           >
             <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">Chat</span>
+            <span>Chat</span>
             {unreadChatCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-400 text-black text-[10px] font-black animate-bounce shadow">
                 {unreadChatCount}
@@ -397,28 +440,28 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           {/* Audio Mute/Unmute Parent */}
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
             title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
           >
             {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
             <span className="hidden sm:inline">{isMuted ? 'Unmute' : 'Audio'}</span>
           </button>
 
-          {/* Layout Mode Button (Full Parent View vs Split) */}
+          {/* Layout Mode Button (Split 50/50 vs PiP View) */}
           <button
-            onClick={() => setLayoutMode(layoutMode === 'pip' ? 'split' : 'pip')}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
-            title={layoutMode === 'pip' ? 'Switch to Side-by-Side Dual View' : 'Switch to Full Parent View'}
+            onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+            title={layoutMode === 'split' ? 'Switch to PiP View' : 'Switch to Side-by-Side Dual View'}
           >
-            {layoutMode === 'pip' ? (
+            {layoutMode === 'split' ? (
               <>
                 <Columns className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Split (50/50)</span>
+                <span>Split (50/50)</span>
               </>
             ) : (
               <>
                 <LayoutGrid className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="hidden sm:inline">Full Parent View</span>
+                <span>PiP View</span>
               </>
             )}
           </button>
@@ -426,8 +469,8 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           {/* Swap Button */}
           <button
             onClick={() => setSwapped(!swapped)}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
-            title="Swap video feeds"
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+            title="Swap video positions"
           >
             <ArrowLeftRight className="w-3.5 h-3.5 text-slate-300" />
             <span className="hidden sm:inline">Swap</span>
@@ -436,20 +479,27 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
-            title={isFullscreen ? 'Exit Fullscreen' : 'Full Screen (Parent Video)'}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Full Screen'}
           >
             {isFullscreen ? <Minimize className="w-3.5 h-3.5 text-amber-400" /> : <Maximize className="w-3.5 h-3.5 text-emerald-400" />}
-            <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full Screen'}</span>
+            <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full'}</span>
+          </button>
+
+          {/* End Call Button */}
+          <button
+            onClick={onStopMonitoring}
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span>End Call</span>
           </button>
         </div>
       </div>
 
-      {/* Incoming Screen Share Request Banner */}
+      {/* Screen Mirror Request Banner */}
       {screenRequestNotice && !isChildScreenSharing && (
-        <div className={`w-full max-w-5xl mx-auto my-2 p-3 bg-cyan-950/90 border border-cyan-500/50 rounded-2xl flex items-center justify-between gap-3 shadow-2xl backdrop-blur-md z-30 animate-fadeIn ${
-          isFullscreen ? 'absolute top-20 inset-x-4 max-w-lg' : ''
-        }`}>
+        <div className="p-3.5 bg-cyan-950/90 border border-cyan-500/50 rounded-2xl flex items-center justify-between gap-3 shadow-2xl backdrop-blur-md animate-fadeIn">
           <div className="flex items-center space-x-2.5 text-xs text-cyan-200">
             <Monitor className="w-4 h-4 text-cyan-400 animate-pulse flex-shrink-0" />
             <span>{screenRequestNotice}</span>
@@ -457,7 +507,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           <div className="flex items-center space-x-2">
             <button
               onClick={startChildScreenMirror}
-              className="px-3 py-1 rounded-xl bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-white font-bold text-xs shadow-lg cursor-pointer"
+              className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-lg cursor-pointer"
             >
               Share Screen
             </button>
@@ -471,16 +521,186 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
         </div>
       )}
 
-      {/* Main Video Arena (Two-Way Communication View) */}
-      <div className={`w-full flex-1 flex flex-col justify-center relative ${
-        isFullscreen ? 'h-full w-full max-w-none my-0' : 'max-w-5xl mx-auto my-3 sm:my-5'
-      }`}>
-        {layoutMode === 'pip' ? (
-          /* Full Parent View with PiP (Matching Parent View Experience, with Full Screen Support) */
-          <div className={`relative w-full overflow-hidden bg-slate-950 shadow-2xl flex items-center justify-center ${
-            isFullscreen ? 'h-full w-full rounded-none border-0' : 'aspect-video max-h-[75vh] rounded-3xl border-2 border-slate-800'
-          }`}>
-            {/* Main Primary View (Parent Video) */}
+      {/* ======================================================== */}
+      {/* 2. MAIN VIDEO & MONITORING SCREEN (Matching Parent Panel) */}
+      {/* ======================================================== */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-6">
+        {/* Stream State Bar with Audio Visualizer & Call Duration Clock */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+          <div className="flex items-center space-x-4">
+            {/* Student Cam Status */}
+            <div className="flex items-center space-x-1.5 text-xs font-medium">
+              {localCamEnabled && cameraActive ? (
+                <>
+                  <Video className="w-4 h-4 text-emerald-400" />
+                  <span className="text-emerald-400">Cam: ON</span>
+                </>
+              ) : (
+                <>
+                  <VideoOff className="w-4 h-4 text-slate-500" />
+                  <span className="text-slate-500">Cam: OFF</span>
+                </>
+              )}
+            </div>
+
+            {/* Student Mic Status */}
+            <div className="flex items-center space-x-1.5 text-xs font-medium">
+              {localMicEnabled && micActive ? (
+                <>
+                  <Mic className="w-4 h-4 text-emerald-400" />
+                  <span className="text-emerald-400">Mic: ON</span>
+                </>
+              ) : (
+                <>
+                  <MicOff className="w-4 h-4 text-slate-500" />
+                  <span className="text-slate-500">Mic: OFF</span>
+                </>
+              )}
+            </div>
+
+            {/* WebRTC State */}
+            <div className="flex items-center space-x-1.5 text-xs font-medium text-slate-400">
+              <Wifi className="w-4 h-4 text-blue-400" />
+              <span>2-Way Call: </span>
+              <span className={`font-mono uppercase font-semibold ${
+                connectionState === 'connected' ? 'text-emerald-400' : 'text-slate-400'
+              }`}>
+                {connectionState}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            {/* Live Audio Visualizer of Remote Feed */}
+            <AudioVisualizer stream={remoteStream} isActive={hasRemoteAudio} />
+
+            {/* Session Duration Counter Clock */}
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-xs font-mono font-bold text-white border border-slate-700">
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{formatDuration(elapsedSeconds)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Video Canvas Container (Side-by-Side Dual View or PiP Mode) */}
+        {layoutMode === 'split' ? (
+          /* Side-by-Side Dual View (Equal Face-to-Face Video Call) */
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full aspect-video md:aspect-[16/9] min-h-[380px] max-h-[640px]">
+            {/* Parent Video Tile */}
+            <div className={`relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-2' : 'order-1'}`}>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                muted={isMuted} // Student hears parent
+                onDoubleClick={toggleFullscreen}
+                className="w-full h-full object-cover"
+              />
+              {!hasRemoteVideo && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-3">
+                  <div className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
+                    <User className="w-8 h-8 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold text-white">Parent Connected</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {remoteStream?.getAudioTracks().length ? 'Parent audio is live. Waiting for parent video...' : 'Connecting parent audio & video...'}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* Overlay Badge */}
+              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                {isParentScreenSharing ? (
+                  <div className="flex items-center space-x-1.5 text-cyan-300 font-bold">
+                    <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Parent Screen (Shared)</span>
+                  </div>
+                ) : (
+                  <>
+                    <User className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{parentName}</span>
+                  </>
+                )}
+              </div>
+              {/* Parent Audio Controls */}
+              <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
+                <button
+                  onClick={() => setIsMuted(!isMuted)}
+                  className="p-1.5 rounded-lg text-slate-200 hover:text-white"
+                  title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
+                >
+                  {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-1.5 rounded-lg text-slate-200 hover:text-white"
+                  title="Expand to Full Screen"
+                >
+                  <Maximize className="w-3.5 h-3.5 text-emerald-400" />
+                </button>
+              </div>
+            </div>
+
+            {/* Student Self-View Tile */}
+            <div className={`relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-1' : 'order-2'}`}>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted={true}
+                className={`w-full h-full object-cover ${isChildScreenSharing ? '' : 'transform -scale-x-100'}`}
+              />
+              {!localCamEnabled && !isChildScreenSharing && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mb-2">
+                    <User className="w-8 h-8 text-slate-400" />
+                  </div>
+                  <p className="text-sm font-bold text-white">Your Camera is Off</p>
+                  <p className="text-xs text-slate-400 mt-1">Click the camera icon below to turn on video</p>
+                </div>
+              )}
+              {/* Overlay Badge */}
+              <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                {isChildScreenSharing ? (
+                  <div className="flex items-center space-x-1.5 text-cyan-300 font-bold">
+                    <Monitor className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                    <span>Sharing Your Screen</span>
+                  </div>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Student (You)</span>
+                  </>
+                )}
+              </div>
+              {/* Student Quick Cam & Mic Controls */}
+              <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
+                <button
+                  onClick={toggleLocalMic}
+                  title={localMicEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+                  className={`p-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    localMicEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                >
+                  {localMicEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={toggleLocalCam}
+                  title={localCamEnabled ? 'Turn off your camera' : 'Turn on your camera'}
+                  className={`p-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    localCamEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                >
+                  {localCamEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* PiP Mode: Full primary video with floating secondary card */
+          <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl">
+            {/* Main Primary Video */}
             <div className="w-full h-full relative group">
               <video
                 ref={!swapped ? remoteVideoRef : localVideoRef}
@@ -489,8 +709,8 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                 muted={!swapped ? isMuted : true}
                 onDoubleClick={toggleFullscreen}
                 className={`w-full h-full ${
-                  !swapped ? '' : (isChildScreenSharing ? '' : 'transform -scale-x-100')
-                } ${isFullscreen ? 'object-cover' : 'object-cover sm:object-contain bg-black'}`}
+                  !swapped ? 'object-cover' : (isChildScreenSharing ? 'object-cover' : 'object-cover transform -scale-x-100')
+                }`}
               />
               {!swapped && !hasRemoteVideo && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-4">
@@ -505,14 +725,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                   </div>
                 </div>
               )}
-              {swapped && !cameraActive && !isChildScreenSharing && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-6 text-center">
-                  <VideoOff className="w-10 h-10 text-slate-500 mb-2" />
-                  <p className="text-sm font-semibold">Your Camera is Off</p>
-                </div>
-              )}
-
-              {/* Overlay Badge */}
+              {/* Primary View Overlay Badge */}
               <div className="absolute top-4 left-4 z-20 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-2 shadow-lg">
                 <span className={`w-2.5 h-2.5 rounded-full ${!swapped ? 'bg-blue-400' : 'bg-emerald-400'} animate-pulse`} />
                 {!swapped ? (
@@ -522,7 +735,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                       <span>Parent Screen (Shared)</span>
                     </span>
                   ) : (
-                    <span>Parent Video (Full Screen View)</span>
+                    <span>{parentName} (Full Screen View)</span>
                   )
                 ) : (
                   isChildScreenSharing ? (
@@ -535,245 +748,90 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                   )
                 )}
               </div>
+            </div>
 
-              {/* Quick Hover Action Bar (Fullscreen, Mute & Swap) */}
-              <div className="absolute bottom-4 right-4 z-20 flex items-center space-x-2 bg-black/80 backdrop-blur-md px-3 py-2 rounded-2xl border border-white/10 shadow-2xl opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200">
+            {/* Top-Right Floating Secondary PiP Card */}
+            <div className="absolute top-4 right-4 z-20 w-40 sm:w-56 aspect-video bg-black rounded-xl overflow-hidden border-2 border-slate-700/80 shadow-2xl group/pip">
+              <video
+                ref={!swapped ? localVideoRef : remoteVideoRef}
+                autoPlay
+                playsInline
+                muted={!swapped ? true : isMuted}
+                className={`w-full h-full object-cover ${!swapped && !isChildScreenSharing ? 'transform -scale-x-100' : ''}`}
+              />
+              {!swapped && !localCamEnabled && !isChildScreenSharing && (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-400 text-xs p-2 text-center">
+                  <User className="w-6 h-6 text-slate-500 mb-1" />
+                  <span>Cam Off</span>
+                </div>
+              )}
+              {/* Floating controls in PiP */}
+              <div className="absolute bottom-1 right-1 flex items-center space-x-1">
                 {!swapped && (
-                  <button
-                    onClick={() => setIsMuted(!isMuted)}
-                    className="p-1.5 rounded-xl hover:bg-white/10 text-slate-200 hover:text-white transition-colors cursor-pointer"
-                    title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
-                  >
-                    {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
-                  </button>
+                  <>
+                    <button
+                      onClick={toggleLocalMic}
+                      title={localMicEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                      className={`p-1 rounded-md text-[10px] transition-colors cursor-pointer ${
+                        localMicEnabled ? 'bg-black/70 hover:bg-black text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                      }`}
+                    >
+                      {localMicEnabled ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3" />}
+                    </button>
+                    <button
+                      onClick={toggleLocalCam}
+                      title={localCamEnabled ? 'Turn off camera' : 'Turn on camera'}
+                      className={`p-1 rounded-md text-[10px] transition-colors cursor-pointer ${
+                        localCamEnabled ? 'bg-black/70 hover:bg-black text-emerald-400' : 'bg-red-600 hover:bg-red-500 text-white'
+                      }`}
+                    >
+                      {localCamEnabled ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3" />}
+                    </button>
+                  </>
                 )}
-
                 <button
-                  onClick={toggleFullscreen}
-                  className="p-1.5 rounded-xl hover:bg-white/10 text-slate-200 hover:text-white transition-colors cursor-pointer"
-                  title={isFullscreen ? 'Exit Fullscreen' : 'View parent video full screen'}
+                  onClick={() => setSwapped(!swapped)}
+                  title="Swap video positions"
+                  className="p-1 rounded-md bg-black/70 hover:bg-black text-white text-[10px] cursor-pointer"
                 >
-                  {isFullscreen ? <Minimize className="w-4 h-4 text-amber-400" /> : <Maximize className="w-4 h-4 text-emerald-400" />}
+                  <ArrowLeftRight className="w-3 h-3" />
                 </button>
               </div>
-            </div>
-
-            {/* Floating PiP Window (Secondary Video) */}
-            <div className={`absolute bottom-4 left-4 sm:bottom-6 sm:left-6 z-20 ${
-              isFullscreen ? 'w-44 sm:w-64' : 'w-36 sm:w-56'
-            } aspect-video bg-black rounded-2xl overflow-hidden border-2 border-slate-700/80 shadow-2xl transition-all duration-200 hover:scale-105 group/pip`}>
-              <div className="w-full h-full relative">
-                <video
-                  ref={!swapped ? localVideoRef : remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  muted={!swapped ? true : isMuted}
-                  className={`w-full h-full object-cover ${!swapped ? 'transform -scale-x-100' : ''}`}
-                />
-                {!swapped && !cameraActive && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900 text-slate-400 text-xs">
-                    Camera Off
-                  </div>
-                )}
-                {swapped && !hasRemoteVideo && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900 text-slate-400 text-xs">
-                    Parent
-                  </div>
-                )}
-                <div className="absolute bottom-1.5 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-sm text-[11px] text-emerald-400 font-semibold flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  {!swapped ? (
-                    isChildScreenSharing ? (
-                      <span className="text-cyan-300 font-bold flex items-center space-x-1">
-                        <Monitor className="w-3 h-3 text-cyan-400" />
-                        <span>Your Screen</span>
-                      </span>
-                    ) : (
-                      <span>You (Student)</span>
-                    )
+              <div className="absolute bottom-1 left-2 text-[10px] font-semibold text-slate-300 drop-shadow flex items-center space-x-1">
+                {!swapped ? (
+                  isChildScreenSharing ? (
+                    <span className="text-cyan-300 flex items-center space-x-1">
+                      <Monitor className="w-3 h-3 text-cyan-400" />
+                      <span>Your Screen</span>
+                    </span>
                   ) : (
-                    isParentScreenSharing ? (
-                      <span className="text-cyan-300 font-bold flex items-center space-x-1">
-                        <Monitor className="w-3 h-3 text-cyan-400" />
-                        <span>Parent Screen</span>
-                      </span>
-                    ) : (
-                      <span>Parent</span>
-                    )
-                  )}
-                </div>
-              </div>
-
-              {/* Swap Button inside PiP */}
-              <button
-                onClick={() => setSwapped(!swapped)}
-                title="Swap main and picture-in-picture views"
-                className="absolute top-1.5 right-1.5 p-1.5 rounded-lg bg-black/70 hover:bg-black text-white opacity-80 group-hover/pip:opacity-100 transition-opacity cursor-pointer"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Side-by-Side Dual View (Equal Face-to-Face Video Call) */
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 w-full ${
-            isFullscreen ? 'h-full w-full' : 'aspect-video max-h-[75vh]'
-          }`}>
-            {/* Parent Video Tile */}
-            <div className={`relative rounded-3xl overflow-hidden bg-slate-900 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-2' : 'order-1'}`}>
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                muted={isMuted} // Student hears parent
-                onDoubleClick={toggleFullscreen}
-                className="w-full h-full object-cover"
-              />
-              {!hasRemoteVideo && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-3">
-                  <div className="w-16 h-16 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-300">
-                    <User className="w-8 h-8 text-emerald-400" />
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-white">Parent Connected</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {remoteStream?.getAudioTracks().length ? 'Parent audio is live. Waiting for parent video...' : 'Connecting parent audio & video...'}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {/* Overlay Badge */}
-              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
-                {isParentScreenSharing ? (
-                  <>
-                    <Monitor className="w-3.5 h-3.5 text-cyan-400" />
-                    <span className="text-cyan-300 font-bold">Parent Screen (Shared)</span>
-                  </>
+                    <span>You (Student)</span>
+                  )
                 ) : (
-                  <>
-                    <User className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Parent</span>
-                  </>
-                )}
-              </div>
-              <div className="absolute bottom-3 right-3 z-20 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10">
-                <button
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="p-1 rounded-lg text-slate-200 hover:text-white"
-                  title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
-                >
-                  {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
-                </button>
-                <button
-                  onClick={toggleFullscreen}
-                  className="p-1 rounded-lg text-slate-200 hover:text-white"
-                  title="Expand to Full Screen"
-                >
-                  <Maximize className="w-3.5 h-3.5 text-emerald-400" />
-                </button>
-              </div>
-            </div>
-
-            {/* Student Self-View Tile */}
-            <div className={`relative rounded-3xl overflow-hidden bg-slate-900 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-1' : 'order-2'}`}>
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted={true}
-                className={`w-full h-full object-cover ${isChildScreenSharing ? '' : 'transform -scale-x-100'}`}
-              />
-              {!cameraActive && !isChildScreenSharing && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-4 text-center">
-                  <VideoOff className="w-8 h-8 text-slate-500 mb-2" />
-                  <p className="text-xs font-semibold">Your Camera is Off</p>
-                </div>
-              )}
-              {/* Overlay Badge */}
-              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
-                {isChildScreenSharing ? (
-                  <>
-                    <Monitor className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                    <span className="text-cyan-300 font-bold">Sharing Your Screen</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Student (You)</span>
-                  </>
+                  <span>{parentName}</span>
                 )}
               </div>
             </div>
           </div>
         )}
-      </div>
 
-      {/* Bottom Control Bar */}
-      <div className={`w-full max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 z-30 ${
-        isFullscreen ? 'absolute bottom-4 left-6 max-w-md p-2 bg-slate-900/90 border border-slate-800 rounded-2xl backdrop-blur-md' : ''
-      }`}>
-        {/* Transparency Reassurance Notice */}
-        <div className={`p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center space-x-2.5 text-xs text-slate-300 ${
-          isFullscreen ? 'border-0 p-1 bg-transparent' : 'max-w-xl'
-        }`}>
-          <ShieldAlert className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-          <span>
-            Two-way session active. Stop call anytime or tap <strong className="text-emerald-400">M</strong> for ChatGPT.
-          </span>
-        </div>
-
-        {/* Primary Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-          {/* Mirror Screen Button */}
-          <button
-            onClick={toggleChildScreenMirror}
-            className={`flex-1 sm:flex-none flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm tracking-wide uppercase transition-all shadow-xl cursor-pointer ${
-              isChildScreenSharing
-                ? 'bg-cyan-600 hover:bg-cyan-500 border border-cyan-400 text-white shadow-cyan-950/50 animate-pulse'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-            title={isChildScreenSharing ? 'Stop mirroring your screen' : 'Mirror your screen to parent'}
-          >
-            {isChildScreenSharing ? <ScreenShareOff className="w-4 h-4 text-white" /> : <ScreenShare className="w-4 h-4 text-cyan-400" />}
-            <span>{isChildScreenSharing ? 'Stop Mirror' : 'Mirror Screen'}</span>
-          </button>
-
-          {/* In-Call Chat Button */}
-          <button
-            onClick={() => setIsChatOpen(!isChatOpen)}
-            className={`relative flex-1 sm:flex-none flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm tracking-wide uppercase transition-all shadow-xl cursor-pointer ${
-              isChatOpen
-                ? 'bg-emerald-600 text-white border border-emerald-500 shadow-emerald-950/50'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-            }`}
-            title="Open in-call chat"
-          >
-            <MessageSquare className="w-4 h-4 text-emerald-400" />
-            <span>Chat</span>
-            {unreadChatCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full bg-emerald-400 text-black text-[10px] font-black animate-bounce shadow">
-                {unreadChatCount}
-              </span>
-            )}
-          </button>
-
-          {/* STOP CALL Button */}
-          <button
-            onClick={onStopMonitoring}
-            className="flex-1 sm:flex-none flex items-center justify-center space-x-2 py-3 px-5 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm tracking-wide uppercase shadow-xl shadow-red-950/50 transition-all cursor-pointer"
-          >
-            <StopCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>STOP CALL</span>
-          </button>
+        {/* Educational Disclosure for Student (Matching Parent Design) */}
+        <div className="text-xs text-slate-400 flex items-start space-x-2 pt-2 border-t border-slate-800/60">
+          <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <p>
+            GuardianLink 2-way call enables parent and student to see and speak with each other in real-time. You have full control and can stop the session anytime, or press <strong className="text-emerald-400">M</strong> to switch directly to ChatGPT.
+          </p>
         </div>
       </div>
 
-      {/* In-Call Chat Overlay / Drawer */}
+      {/* ======================================================== */}
+      {/* 3. IN-CALL CHAT DRAWER / OVERLAY                           */}
+      {/* ======================================================== */}
       {sessionId && (
         <InCallChat
           sessionId={sessionId}
           role="child"
-          peerName="Parent"
+          peerName={parentName}
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
           onUnreadCountChange={(count) => setUnreadChatCount(count)}
@@ -784,8 +842,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
       )}
 
       {/* ======================================================== */}
-      {/* THE "M" BUTTON (Instant < 1 Second Redirection to ChatGPT) */}
-      {/* High-priority touch/pointer down & keydown triggers       */}
+      {/* 4. THE "M" BUTTON (Instant < 1 Second Redirection)        */}
       {/* ======================================================== */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center">
         <button
@@ -821,4 +878,3 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
     </div>
   );
 };
-
