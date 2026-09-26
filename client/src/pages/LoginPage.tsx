@@ -5,8 +5,8 @@ import { useAuth } from '../hooks/useAuth';
 import { isChildDevicePaired } from '../utils/storage';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('kowshiekrajendran007@gmail.com');
-  const [password, setPassword] = useState('Parent@Kows');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAccountInfo, setShowAccountInfo] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -62,7 +62,7 @@ export const LoginPage: React.FC = () => {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-              Email
+              Email ID
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
@@ -71,7 +71,8 @@ export const LoginPage: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="parent@example.com"
+                placeholder="Enter mail ID"
+                autoComplete="email"
                 className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all"
               />
             </div>
@@ -88,7 +89,8 @@ export const LoginPage: React.FC = () => {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
+                placeholder="Enter password"
+                autoComplete="current-password"
                 className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all"
               />
             </div>
@@ -123,10 +125,6 @@ export const LoginPage: React.FC = () => {
             </div>
             <p className="leading-relaxed">
               In this database-free zero-persistence security model, parent authentication is tied to environment configuration (<span className="font-mono text-emerald-400">PARENT_EMAIL</span> and bcrypt <span className="font-mono text-emerald-400">PARENT_PASSWORD_HASH</span>).
-            </p>
-            <p className="text-[11px] text-slate-500">
-              Default development credentials: <br/>
-              <span className="font-mono text-slate-300">parent@example.com</span> / <span className="font-mono text-slate-300">GuardianPass123!</span>
             </p>
           </div>
         )}
