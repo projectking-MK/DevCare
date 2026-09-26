@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Smartphone, RefreshCw, AlertCircle, QrCode, Hash } from 'lucide-react';
+import { Shield, Smartphone, RefreshCw, AlertCircle, QrCode, Hash, Clock } from 'lucide-react';
 import { pairingApi } from '../services/api';
 import { saveChildDeviceInfo, SavedChildDeviceInfo } from '../utils/storage';
 import { ChildQrScanner } from './ChildQrScanner';
@@ -100,6 +100,10 @@ export const ChildPairingView: React.FC<ChildPairingViewProps> = ({ onPairedSucc
           <p className="text-sm text-slate-400 pt-1">
             Pair with Parent Device
           </p>
+          <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-950 border border-slate-800 text-[11px] text-slate-400">
+            <Clock className="w-3 h-3 text-emerald-400" />
+            <span>Pairing QR & Code valid for 5 hours</span>
+          </div>
         </div>
 
         {/* Pairing Method Switcher */}

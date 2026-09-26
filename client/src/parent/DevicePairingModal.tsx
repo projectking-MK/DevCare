@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Smartphone, Clock, RefreshCw, CheckCircle2, ShieldAlert, QrCode, Hash } from 'lucide-react';
+import { X, Smartphone, Clock, RefreshCw, CheckCircle2, ShieldAlert, QrCode, Hash, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 import { pairingApi } from '../services/api';
 
@@ -49,6 +49,16 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
     }
   };
 
+  const handleDownloadQr = () => {
+    if (!qrDataUrl) return;
+    const a = document.createElement('a');
+    a.href = qrDataUrl;
+    a.download = `DevCare-Pairing-QR-${code || 'device'}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchCode();
@@ -75,7 +85,8 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
 
   if (!isOpen) return null;
 
-  const minutes = Math.floor(secondsRemaining / 60);
+  const hours = Math.floor(secondsRemaining / 3600);
+  const minutes = Math.floor((secondsRemaining % 3600) / 60);
   const seconds = secondsRemaining % 60;
   const isExpired = secondsRemaining <= 0;
 
@@ -97,7 +108,7 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
           </div>
           <div>
             <h3 className="text-lg font-bold text-white tracking-tight">Pair Child Device</h3>
-            <p className="text-xs text-slate-400">Generate a temporary connection code</p>
+            <p className="text-xs text-slate-400">Generate a connection code (Valid for 5 hours)</p>
           </div>
         </div>
 
@@ -150,7 +161,7 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
         <div className="space-y-4 mb-6">
           <p className="text-xs text-slate-300 leading-relaxed text-center">
             {activeTab === 'qr'
-              ? 'On your child device, open /child and scan this QR code with the camera:'
+              ? 'On your child device, open /child and scan this QR code with camera or upload image:'
               : 'On your child device, open /child and enter this 6-digit code:'}
           </p>
 
@@ -176,12 +187,24 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
             ) : (
               <div className="w-full flex flex-col items-center space-y-3">
                 {activeTab === 'qr' && qrDataUrl ? (
-                  <div className="p-3 bg-white rounded-2xl shadow-xl border-4 border-emerald-500/30">
-                    <img
-                      src={qrDataUrl}
-                      alt="Pairing QR Code"
-                      className="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-lg"
-                    />
+                  <div className="flex flex-col items-center space-y-3">
+                    <div className="p-3 bg-white rounded-2xl shadow-xl border-4 border-emerald-500/30">
+                      <img
+                        src={qrDataUrl}
+                        alt="Pairing QR Code"
+                        className="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-lg"
+                      />
+                    </div>
+                    {/* QR Code Download Option */}
+                    <button
+                      type="button"
+                      onClick={handleDownloadQr}
+                      className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold shadow-md transition-all active:scale-95 cursor-pointer"
+                      title="Download QR code image to share with child or print"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Download QR Code (PNG)</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="flex justify-center space-x-2 sm:space-x-3 my-2">
@@ -208,8 +231,10 @@ export const DevicePairingModal: React.FC<DevicePairingModalProps> = ({ isOpen, 
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Expires in:</span>
                   <span className="font-mono font-semibold text-emerald-400">
+                    {hours > 0 ? `${hours}h ` : ''}
                     {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
                   </span>
+                  <span className="text-[10px] text-slate-500 font-medium">(5 hours validity)</span>
                 </div>
               </div>
             )}

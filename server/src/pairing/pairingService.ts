@@ -3,7 +3,7 @@ import { PairingRecord, PairedDevice } from '../sessions/types';
 import { sessionStore } from '../sessions/sessionStore';
 import { logger } from '../utils/logger';
 
-const PAIRING_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PAIRING_CODE_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
 const MAX_PAIRING_ATTEMPTS = 5;
 
 /**

@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import jsQR from 'jsqr';
-import { Camera, RefreshCw, AlertCircle, CheckCircle2, SwitchCamera, Sparkles } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, CheckCircle2, SwitchCamera, Sparkles, Upload, Image as ImageIcon } from 'lucide-react';
 
 interface ChildQrScannerProps {
   onScanSuccess: (code: string) => void;
@@ -10,6 +10,7 @@ interface ChildQrScannerProps {
 export const ChildQrScanner: React.FC<ChildQrScannerProps> = ({ onScanSuccess, onCancel }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
@@ -34,6 +35,51 @@ export const ChildQrScanner: React.FC<ChildQrScannerProps> = ({ onScanSuccess, o
     if (clean.length === 6) return clean;
 
     return null;
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setErrorMessage(null);
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'dontInvert'
+        });
+
+        if (code && code.data) {
+          const detected = extractCode(code.data);
+          if (detected) {
+            setIsProcessing(true);
+            setScannedCode(detected);
+            stopCamera();
+            setTimeout(() => {
+              onScanSuccess(detected);
+            }, 600);
+            return;
+          }
+        }
+      }
+      setErrorMessage('No valid DevCare pairing QR code found in this image. Please select a clear QR code.');
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      setErrorMessage('Failed to read image file. Please try another image.');
+    };
+
+    img.src = objectUrl;
   };
 
   const startCamera = async (facing: 'environment' | 'user') => {
@@ -229,6 +275,31 @@ export const ChildQrScanner: React.FC<ChildQrScannerProps> = ({ onScanSuccess, o
               <span>Retry Camera</span>
             </button>
           </div>
+        )}
+      </div>
+
+      {/* Upload QR Image File Option (e.g. from parent download) */}
+      <div className="flex flex-col items-center space-y-2 w-full max-w-[320px]">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full flex items-center justify-center space-x-2 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+        >
+          <Upload className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Upload / Select Downloaded QR Image</span>
+        </button>
+
+        {errorMessage && hasPermission !== false && (
+          <p className="text-[11px] text-red-400 text-center bg-red-500/10 border border-red-500/20 rounded-lg p-2 w-full animate-fadeIn">
+            {errorMessage}
+          </p>
         )}
       </div>
 
