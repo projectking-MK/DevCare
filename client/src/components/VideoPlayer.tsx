@@ -19,6 +19,7 @@ interface VideoPlayerProps {
   className?: string;
   poster?: string;
   fallbackMessage?: string;
+  onToggleFullscreen?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -28,7 +29,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   autoPlay = true,
   muted = false,
   className = '',
-  fallbackMessage = 'No active video feed'
+  fallbackMessage = 'No active video feed',
+  onToggleFullscreen
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -109,6 +111,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Handle fullscreen
   const toggleFullscreen = async () => {
+    if (onToggleFullscreen) {
+      onToggleFullscreen();
+      return;
+    }
+
     if (!containerRef.current) return;
 
     if (!document.fullscreenElement) {

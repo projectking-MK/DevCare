@@ -300,28 +300,69 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
     }
   }, [remoteStream, swapped, layoutMode, isFullscreen]);
 
-  // Track Fullscreen status
+  // Track Fullscreen status across modern & prefixed browser events
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      const isFs = Boolean(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFs);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
   }, []);
 
-  // Fullscreen toggle handler
+  // Fullscreen toggle handler with documentElement targeting & CSS fullscreen fallback
   const toggleFullscreen = async () => {
-    if (!containerRef.current) return;
     try {
-      if (!document.fullscreenElement) {
-        await containerRef.current.requestFullscreen();
+      const isCurrentlyFs = Boolean(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement ||
+        isFullscreen
+      );
+
+      if (!isCurrentlyFs) {
+        const root = document.documentElement;
+        if (root.requestFullscreen) {
+          await root.requestFullscreen();
+        } else if ((root as any).webkitRequestFullscreen) {
+          await (root as any).webkitRequestFullscreen();
+        } else if ((root as any).mozRequestFullScreen) {
+          await (root as any).mozRequestFullScreen();
+        } else if ((root as any).msRequestFullscreen) {
+          await (root as any).msRequestFullscreen();
+        } else if (containerRef.current?.requestFullscreen) {
+          await containerRef.current.requestFullscreen();
+        }
         setIsFullscreen(true);
       } else {
-        await document.exitFullscreen();
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        } else if ((document as any).mozCancelFullScreen) {
+          await (document as any).mozCancelFullScreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
+        }
         setIsFullscreen(false);
       }
     } catch (err) {
-      console.warn('[Child View] Fullscreen error:', err);
+      console.warn('[Child View] Browser fullscreen API not permitted, falling back to CSS fullscreen layout:', err);
+      setIsFullscreen((prev) => !prev);
     }
   };
 
