@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { sessionStore } from '../sessions/sessionStore';
-import { pairingService } from '../pairing/pairingService';
 import { verifyPassword } from './passwordUtils';
 import { SESSION_COOKIE_NAME, AuthenticatedRequest } from './authMiddleware';
 import { logger } from '../utils/logger';
@@ -101,10 +100,8 @@ export function getCurrentUserHandler(req: AuthenticatedRequest, res: Response):
 export function logoutHandler(req: AuthenticatedRequest, res: Response): void {
   const sessionId = req.cookies?.[SESSION_COOKIE_NAME];
   if (sessionId) {
-    const { parentId } = sessionStore.destroySession(sessionId);
-    if (parentId) {
-      pairingService.invalidateCodesForParent(parentId);
-    }
+    sessionStore.destroySession(sessionId);
+    // Note: Generated 5-hour pairing QR codes remain permanently valid even after parent logs out
   }
 
   // Clear cookie
