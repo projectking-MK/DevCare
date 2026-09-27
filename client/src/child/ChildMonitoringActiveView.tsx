@@ -24,7 +24,8 @@ import {
   Radio,
   Clock,
   Sparkles,
-  Square
+  Square,
+  Tv
 } from 'lucide-react';
 import { getSocket } from '../services/socket';
 import { WebRtcConnection } from '../services/webrtc';
@@ -62,8 +63,8 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
   const sessionStartTimeRef = useRef<number>(Date.now());
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Default layout matching parent: 'split' for equal 50/50 dual view, toggleable to 'pip'
-  const [layoutMode, setLayoutMode] = useState<'split' | 'pip'>('split');
+  // Layout mode: 'split' for equal 50/50 dual view, 'pip' for picture-in-picture, 'parent-full' for Parent Full View
+  const [layoutMode, setLayoutMode] = useState<'split' | 'pip' | 'parent-full'>('split');
   const [swapped, setSwapped] = useState(false); // Swap local and remote positions
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [isMuted, setIsMuted] = useState(false); // Parent audio mute/unmute
@@ -447,24 +448,39 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
             <span className="hidden sm:inline">{isMuted ? 'Unmute' : 'Audio'}</span>
           </button>
 
-          {/* Layout Mode Button (Split 50/50 vs PiP View) */}
-          <button
-            onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
-            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
-            title={layoutMode === 'split' ? 'Switch to PiP View' : 'Switch to Side-by-Side Dual View'}
-          >
-            {layoutMode === 'split' ? (
-              <>
-                <Columns className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Split (50/50)</span>
-              </>
-            ) : (
-              <>
-                <LayoutGrid className="w-3.5 h-3.5 text-cyan-400" />
-                <span>PiP View</span>
-              </>
-            )}
-          </button>
+          {/* Layout Mode Selector (Split 50/50 vs PiP View vs Parent Full View) */}
+          <div className="flex items-center rounded-xl bg-slate-800 p-1 border border-slate-700">
+            <button
+              onClick={() => setLayoutMode('split')}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                layoutMode === 'split' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Split 50/50 Dual View"
+            >
+              <Columns className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Split</span>
+            </button>
+            <button
+              onClick={() => setLayoutMode('pip')}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                layoutMode === 'pip' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Picture-in-Picture View"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">PiP</span>
+            </button>
+            <button
+              onClick={() => setLayoutMode('parent-full')}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                layoutMode === 'parent-full' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Parent Full View"
+            >
+              <Tv className="w-3.5 h-3.5" />
+              <span>Full View</span>
+            </button>
+          </div>
 
           {/* Swap Button */}
           <button
@@ -582,8 +598,106 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           </div>
         </div>
 
-        {/* Video Canvas Container (Side-by-Side Dual View or PiP Mode) */}
-        {layoutMode === 'split' ? (
+        {/* Video Canvas Container (Parent Full View, Side-by-Side Dual View, or PiP Mode) */}
+        {layoutMode === 'parent-full' ? (
+          /* ======================================================== */
+          /* PARENT FULL VIEW: Dominant Edge-to-Edge View of Parent    */
+          /* Chatting option and M button are integrated cleanly in it */
+          /* ======================================================== */
+          <div className="relative w-full aspect-video md:aspect-[16/9] min-h-[400px] max-h-[720px] rounded-2xl overflow-hidden bg-slate-950 border-2 border-emerald-500/40 shadow-2xl flex items-center justify-center group">
+            {/* Full View Parent Video */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              muted={isMuted}
+              onDoubleClick={toggleFullscreen}
+              className="w-full h-full object-cover"
+            />
+
+            {!hasRemoteVideo && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-slate-400 p-6 text-center space-y-3">
+                <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-300">
+                  <User className="w-10 h-10 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-white">{parentName} (Full View)</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {remoteStream?.getAudioTracks().length ? 'Parent audio is live. Waiting for parent video feed...' : 'Connecting parent audio & video...'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Top-Left Badge */}
+            <div className="absolute top-4 left-4 z-20 px-3.5 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-2 shadow-lg">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              {isParentScreenSharing ? (
+                <div className="flex items-center space-x-1.5 text-cyan-300 font-bold">
+                  <Monitor className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                  <span>Parent Screen (Shared Full View)</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1.5">
+                  <Tv className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{parentName} (Full View)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Controls overlay on Parent Full View */}
+            <div className="absolute bottom-4 right-4 z-20 flex items-center space-x-2 bg-black/75 backdrop-blur-md p-2 rounded-2xl border border-white/10 shadow-lg">
+              {/* Parent Audio Mute/Unmute */}
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className="p-2 rounded-xl text-slate-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+              </button>
+
+              {/* Student Local Mic Toggle */}
+              <button
+                onClick={toggleLocalMic}
+                className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer border ${
+                  localMicEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+                }`}
+                title={localMicEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+              >
+                {localMicEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+              </button>
+
+              {/* Student Local Cam Toggle */}
+              <button
+                onClick={toggleLocalCam}
+                className={`p-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer border ${
+                  localCamEnabled ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+                }`}
+                title={localCamEnabled ? 'Turn off camera' : 'Turn on camera'}
+              >
+                {localCamEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+              </button>
+
+              {/* Switch back to Split View */}
+              <button
+                onClick={() => setLayoutMode('split')}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                title="Switch to Split View"
+              >
+                <Columns className="w-4 h-4 text-emerald-400" />
+              </button>
+
+              {/* Expand to Browser Fullscreen */}
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                title={isFullscreen ? 'Exit Fullscreen' : 'Expand to Fullscreen'}
+              >
+                {isFullscreen ? <Minimize className="w-4 h-4 text-amber-400" /> : <Maximize className="w-4 h-4 text-emerald-400" />}
+              </button>
+            </div>
+          </div>
+        ) : layoutMode === 'split' ? (
           /* Side-by-Side Dual View (Equal Face-to-Face Video Call) */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full aspect-video md:aspect-[16/9] min-h-[380px] max-h-[640px]">
             {/* Parent Video Tile */}
@@ -625,6 +739,14 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
               </div>
               {/* Parent Audio Controls */}
               <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
+                <button
+                  onClick={() => setLayoutMode('parent-full')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors cursor-pointer"
+                  title="Switch to Full View of Parent"
+                >
+                  <Tv className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Full View</span>
+                </button>
                 <button
                   onClick={() => setIsMuted(!isMuted)}
                   className="p-1.5 rounded-lg text-slate-200 hover:text-white"
@@ -747,6 +869,32 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                     <span>Student (Self-View)</span>
                   )
                 )}
+              </div>
+
+              {/* Primary Video Quick Controls in PiP */}
+              <div className="absolute bottom-4 right-4 z-20 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
+                <button
+                  onClick={() => setLayoutMode('parent-full')}
+                  className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors cursor-pointer"
+                  title="Switch to Parent Full View"
+                >
+                  <Tv className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Full View</span>
+                </button>
+                <button
+                  onClick={() => setIsMuted(!isMuted)}
+                  className="p-1.5 rounded-lg text-slate-200 hover:text-white"
+                  title={isMuted ? 'Unmute parent audio' : 'Mute parent audio'}
+                >
+                  {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-1.5 rounded-lg text-slate-200 hover:text-white"
+                  title="Expand to Full Screen"
+                >
+                  <Maximize className="w-3.5 h-3.5 text-emerald-400" />
+                </button>
               </div>
             </div>
 
@@ -891,14 +1039,37 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
             {isChildScreenSharing ? <ScreenShareOff className="w-4 h-4" /> : <ScreenShare className="w-4 h-4 text-cyan-400" />}
           </button>
 
-          {/* Layout Mode (Split / PiP) */}
-          <button
-            onClick={() => setLayoutMode(layoutMode === 'split' ? 'pip' : 'split')}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
-            title={layoutMode === 'split' ? 'Switch to PiP View' : 'Switch to Split (50/50) View'}
-          >
-            {layoutMode === 'split' ? <Columns className="w-4 h-4 text-emerald-400" /> : <LayoutGrid className="w-4 h-4 text-cyan-400" />}
-          </button>
+          {/* Layout Mode (Split / PiP / Parent Full View) */}
+          <div className="flex items-center rounded-xl bg-slate-800/80 p-0.5 border border-slate-700">
+            <button
+              onClick={() => setLayoutMode('split')}
+              className={`p-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                layoutMode === 'split' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Split View"
+            >
+              <Columns className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setLayoutMode('pip')}
+              className={`p-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                layoutMode === 'pip' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+              title="PiP View"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setLayoutMode('parent-full')}
+              className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                layoutMode === 'parent-full' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+              title="Parent Full View"
+            >
+              <Tv className="w-4 h-4 text-emerald-300" />
+              <span className="text-[10px] hidden sm:inline">Full</span>
+            </button>
+          </div>
 
           {/* Swap Video */}
           <button
