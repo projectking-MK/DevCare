@@ -5,32 +5,33 @@ import {
   Mic, 
   MicOff, 
   Wifi, 
-  ShieldAlert, 
-  StopCircle, 
   Maximize, 
   Minimize, 
   User, 
-  ArrowLeftRight,
-  Columns,
-  LayoutGrid,
-  Volume2,
-  VolumeX,
-  ExternalLink,
-  ScreenShare,
-  ScreenShareOff,
-  Monitor,
-  MessageSquare,
-  X,
-  Radio,
-  Clock,
-  Sparkles,
-  Square,
-  Tv
+  ArrowLeftRight, 
+  Columns, 
+  LayoutGrid, 
+  Volume2, 
+  VolumeX, 
+  ExternalLink, 
+  ScreenShare, 
+  ScreenShareOff, 
+  Monitor, 
+  MessageSquare, 
+  X, 
+  Radio, 
+  Clock, 
+  Sparkles, 
+  Square, 
+  Tv,
+  CircleDot,
+  AlertCircle
 } from 'lucide-react';
 import { getSocket } from '../services/socket';
 import { WebRtcConnection } from '../services/webrtc';
 import { InCallChat } from '../components/InCallChat';
 import { AudioVisualizer } from '../components/AudioVisualizer';
+import { useMediaRecorder } from '../hooks/useMediaRecorder';
 import { formatDuration } from '../utils/formatters';
 
 interface ChildMonitoringActiveViewProps {
@@ -80,6 +81,16 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
   const [isChildScreenSharing, setIsChildScreenSharing] = useState(false);
   const [isParentScreenSharing, setIsParentScreenSharing] = useState(false);
   const [screenRequestNotice, setScreenRequestNotice] = useState<string | null>(null);
+
+  // Local Media Recording in IndexedDB (Matching Parent Panel)
+  const {
+    isRecording,
+    duration: recordDuration,
+    error: recordError,
+    storageWarning,
+    startRecording,
+    stopRecording
+  } = useMediaRecorder(remoteStream, 'child_companion', parentName, sessionId || 'child_active_call');
 
   // Elapsed duration timer matching parent view
   useEffect(() => {
@@ -478,7 +489,7 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
               title="Parent Full View"
             >
               <Tv className="w-3.5 h-3.5" />
-              <span>Full View</span>
+              <span className="hidden sm:inline">Full</span>
             </button>
           </div>
 
@@ -491,6 +502,27 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
             <ArrowLeftRight className="w-3.5 h-3.5 text-slate-300" />
             <span className="hidden sm:inline">Swap</span>
           </button>
+
+          {/* Local Recording Button (Matching Parent Panel) */}
+          {!isRecording ? (
+            <button
+              onClick={startRecording}
+              className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-xs font-semibold shadow-md transition-colors cursor-pointer"
+              title="Record call locally to device"
+            >
+              <CircleDot className="w-3.5 h-3.5 text-white" />
+              <span>Record</span>
+            </button>
+          ) : (
+            <button
+              onClick={stopRecording}
+              className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-xs font-semibold transition-colors animate-pulse cursor-pointer"
+              title="Stop Recording"
+            >
+              <Square className="w-3 h-3 fill-current" />
+              <span>Stop ({formatDuration(recordDuration)})</span>
+            </button>
+          )}
 
           {/* Fullscreen Button */}
           <button
@@ -537,6 +569,20 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
         </div>
       )}
 
+      {/* Storage Warning or Record Error (Matching Parent Panel) */}
+      {storageWarning && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center space-x-3 text-sm text-amber-300">
+          <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+          <span>{storageWarning}</span>
+        </div>
+      )}
+
+      {recordError && (
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+          {recordError}
+        </div>
+      )}
+
       {/* ======================================================== */}
       {/* 2. MAIN VIDEO & MONITORING SCREEN (Matching Parent Panel) */}
       {/* ======================================================== */}
@@ -544,32 +590,32 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
         {/* Stream State Bar with Audio Visualizer & Call Duration Clock */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
           <div className="flex items-center space-x-4">
-            {/* Student Cam Status */}
+            {/* Parent Cam Status */}
             <div className="flex items-center space-x-1.5 text-xs font-medium">
-              {localCamEnabled && cameraActive ? (
+              {hasRemoteVideo ? (
                 <>
                   <Video className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400">Cam: ON</span>
+                  <span className="text-emerald-400">Parent Cam: ON</span>
                 </>
               ) : (
                 <>
                   <VideoOff className="w-4 h-4 text-slate-500" />
-                  <span className="text-slate-500">Cam: OFF</span>
+                  <span className="text-slate-500">Parent Cam: OFF</span>
                 </>
               )}
             </div>
 
-            {/* Student Mic Status */}
+            {/* Parent Mic Status */}
             <div className="flex items-center space-x-1.5 text-xs font-medium">
-              {localMicEnabled && micActive ? (
+              {hasRemoteAudio ? (
                 <>
                   <Mic className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400">Mic: ON</span>
+                  <span className="text-emerald-400">Parent Mic: ON</span>
                 </>
               ) : (
                 <>
                   <MicOff className="w-4 h-4 text-slate-500" />
-                  <span className="text-slate-500">Mic: OFF</span>
+                  <span className="text-slate-500">Parent Mic: OFF</span>
                 </>
               )}
             </div>
@@ -737,7 +783,18 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                   </>
                 )}
               </div>
-              {/* Parent Audio Controls */}
+
+              {/* Parent Mic Status Indicator */}
+              <div className="absolute bottom-3 left-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs">
+                {hasRemoteAudio ? (
+                  <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <MicOff className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span className="text-[11px] text-slate-300 font-medium">Parent Mic</span>
+              </div>
+
+              {/* Parent Audio & Full View Quick Controls */}
               <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
                 <button
                   onClick={() => setLayoutMode('parent-full')}
@@ -796,6 +853,17 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
                   </>
                 )}
               </div>
+
+              {/* Student Mic Status Indicator */}
+              <div className="absolute bottom-3 left-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs">
+                {localMicEnabled ? (
+                  <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <MicOff className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <span className="text-[11px] text-slate-300 font-medium">Your Mic</span>
+              </div>
+
               {/* Student Quick Cam & Mic Controls */}
               <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-1.5 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
                 <button
@@ -963,6 +1031,27 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
           </div>
         )}
 
+        {/* Active Recording Pill Indicator (Matching Parent Panel) */}
+        {isRecording && (
+          <div className="flex items-center justify-between p-4 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200">
+            <div className="flex items-center space-x-3">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+              </span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-red-400">RECORDING IN PROGRESS</p>
+                <p className="text-[11px] text-slate-300">
+                  Recording locally to device IndexedDB. Never uploaded to external servers.
+                </p>
+              </div>
+            </div>
+            <span className="font-mono text-lg font-bold text-white">
+              {formatDuration(recordDuration)}
+            </span>
+          </div>
+        )}
+
         {/* Educational Disclosure for Student (Matching Parent Design) */}
         <div className="text-xs text-slate-400 flex items-start space-x-2 pt-2 border-t border-slate-800/60">
           <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -1080,6 +1169,25 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
             <ArrowLeftRight className="w-4 h-4 text-slate-300" />
           </button>
 
+          {/* Local Record Button in Fullscreen (Matching Parent Panel) */}
+          {!isRecording ? (
+            <button
+              onClick={startRecording}
+              className="p-2 rounded-xl bg-red-600/90 hover:bg-red-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+              title="Record locally"
+            >
+              <CircleDot className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={stopRecording}
+              className="p-2 rounded-xl bg-red-950 border border-red-500 text-red-400 hover:bg-red-900/60 text-xs font-semibold transition-colors animate-pulse cursor-pointer"
+              title="Stop Recording"
+            >
+              <Square className="w-3 h-3 fill-current" />
+            </button>
+          )}
+
           {/* Exit Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
@@ -1101,10 +1209,10 @@ export const ChildMonitoringActiveView: React.FC<ChildMonitoringActiveViewProps>
       )}
 
       {/* ======================================================== */}
-      {/* 4. FLOATING QUICK CHAT TRIGGER BUTTON                      */}
-      {/* Stays docked at bottom-left when chat is closed            */}
+      {/* 4. FLOATING QUICK CHAT TRIGGER BUTTON                    */}
+      {/* Positioned at bottom-left corner with fixed z-[60]         */}
       {/* ======================================================== */}
-      {sessionId && !isChatOpen && (
+      {!isChatOpen && (
         <button
           onClick={() => setIsChatOpen(true)}
           className="fixed bottom-6 left-6 z-[60] flex items-center space-x-2 px-3.5 py-2.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-slate-100 backdrop-blur-md border border-slate-700/80 shadow-2xl hover:border-emerald-500/50 hover:scale-105 active:scale-95 transition-all cursor-pointer animate-fadeIn"
