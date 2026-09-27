@@ -41,6 +41,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [hasVideoTrack, setHasVideoTrack] = useState(false);
 
   useEffect(() => {
+    const handleFsChange = () => {
+      const isFs = Boolean(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFs);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    document.addEventListener('mozfullscreenchange', handleFsChange);
+    document.addEventListener('MSFullscreenChange', handleFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+      document.removeEventListener('mozfullscreenchange', handleFsChange);
+      document.removeEventListener('MSFullscreenChange', handleFsChange);
+    };
+  }, []);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
@@ -154,7 +176,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative group bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex items-center justify-center ${className}`}
+      className={`relative group ${className.includes('bg-') ? '' : 'bg-slate-950'} flex items-center justify-center overflow-hidden ${
+        className.includes('rounded-') ? '' : 'rounded-2xl'
+      } ${
+        className.includes('border-') ? '' : 'border border-slate-800'
+      } ${
+        className.includes('shadow-') ? '' : 'shadow-2xl'
+      } ${className}`}
     >
       <video
         ref={videoRef}

@@ -60,7 +60,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   // Layout mode for 2-way call ('split' for side-by-side equal tiles, 'pip' for picture-in-picture, 'full' for child full view)
-  const [layoutMode, setLayoutMode] = useState<'split' | 'pip' | 'full'>('split');
+  const [layoutMode, setLayoutMode] = useState<'split' | 'pip' | 'full'>('full');
   const [swapped, setSwapped] = useState(false);
 
   // In-call chat & screen mirror states
@@ -137,6 +137,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
       );
 
       if (!isCurrentlyFs) {
+        setLayoutMode('full'); // Always view child video in full screen when full screen is triggered
         const root = document.documentElement;
         if (root.requestFullscreen) {
           await root.requestFullscreen();
@@ -151,20 +152,24 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         }
         setIsFullscreen(true);
       } else {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if ((document as any).webkitExitFullscreen) {
-          await (document as any).webkitExitFullscreen();
-        } else if ((document as any).mozCancelFullScreen) {
-          await (document as any).mozCancelFullScreen();
-        } else if ((document as any).msExitFullscreen) {
-          await (document as any).msExitFullscreen();
+        try {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if ((document as any).webkitExitFullscreen) {
+            await (document as any).webkitExitFullscreen();
+          } else if ((document as any).mozCancelFullScreen) {
+            await (document as any).mozCancelFullScreen();
+          } else if ((document as any).msExitFullscreen) {
+            await (document as any).msExitFullscreen();
+          }
+        } catch {
+          // If native exit fails (e.g. was CSS fullscreen), ignore error
         }
         setIsFullscreen(false);
       }
     } catch (err) {
       console.warn('[Parent Panel] Browser fullscreen API not permitted, falling back to CSS fullscreen layout:', err);
-      // Seamless CSS Fullscreen fallback
+      setLayoutMode('full');
       setIsFullscreen((prev) => !prev);
     }
   };
@@ -620,13 +625,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
         <div className="w-full h-full flex-1 relative flex items-center justify-center bg-black overflow-hidden">
           {layoutMode === 'full' ? (
             /* Sole Full Screen Child Video */
-            <div className="w-full h-full relative flex items-center justify-center bg-black">
+            <div className="w-full h-full relative flex items-center justify-center bg-black" onDoubleClick={toggleFullscreen}>
               <VideoPlayer
                 stream={remoteStream}
                 isLive={true}
                 autoPlay={true}
                 muted={isMuted}
-                className="w-full h-full object-contain sm:object-cover"
+                className="w-full h-full object-contain sm:object-cover bg-black border-0 rounded-none shadow-none"
                 fallbackMessage="Waiting for child video feed..."
                 onToggleFullscreen={toggleFullscreen}
               />
@@ -1101,14 +1106,17 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                   <span className="hidden sm:inline">PiP</span>
                 </button>
                 <button
-                  onClick={() => setLayoutMode('full')}
+                  onClick={() => {
+                    setLayoutMode('full');
+                    if (!isFullscreen) toggleFullscreen();
+                  }}
                   className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     layoutMode === 'full' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Child Full View"
+                  title="View Child in Full Screen"
                 >
                   <Tv className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Full View</span>
+                  <span className="hidden sm:inline">Full Screen</span>
                 </button>
               </div>
 
@@ -1143,7 +1151,10 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
 
               {/* Fullscreen Button */}
               <button
-                onClick={toggleFullscreen}
+                onClick={() => {
+                  setLayoutMode('full');
+                  toggleFullscreen();
+                }}
                 className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
                   isFullscreen
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
@@ -1272,7 +1283,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           </div>
         ) : layoutMode === 'full' ? (
           /* Child Full View (Sole Dominant Child Video) */
-          <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl">
+          <div
+            className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl"
+            onDoubleClick={() => {
+              setLayoutMode('full');
+              toggleFullscreen();
+            }}
+          >
             <VideoPlayer
               stream={remoteStream}
               isLive={true}
@@ -1280,15 +1297,18 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               muted={isMuted} // Parent hears child if unmuted
               className="w-full h-full"
               fallbackMessage="Waiting for child video feed..."
-              onToggleFullscreen={toggleFullscreen}
+              onToggleFullscreen={() => {
+                setLayoutMode('full');
+                toggleFullscreen();
+              }}
             />
             {isChildScreenSharing ? (
-              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl animate-pulse">
+              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl animate-pulse pointer-events-none">
                 <Monitor className="w-3.5 h-3.5 text-cyan-200" />
                 <span>Child Screen Mirror Active</span>
               </div>
             ) : (
-              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+              <div className="absolute top-4 left-4 z-20 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg pointer-events-none">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span>{activeDeviceName} (Full View)</span>
               </div>
@@ -1296,7 +1316,10 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
             {/* Top-Right Quick Controls Overlay in Full View */}
             <div className="absolute top-4 right-4 z-20 flex items-center space-x-1.5 bg-black/70 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
               <button
-                onClick={() => setLayoutMode('split')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLayoutMode('split');
+                }}
                 className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
                 title="Switch back to Split (50/50) View"
               >
@@ -1304,14 +1327,21 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 <span>Split View</span>
               </button>
               <button
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsMuted(!isMuted);
+                }}
                 className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
                 title={isMuted ? 'Unmute child audio' : 'Mute child audio'}
               >
                 {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
               </button>
               <button
-                onClick={toggleFullscreen}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLayoutMode('full');
+                  toggleFullscreen();
+                }}
                 className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
                 title="Expand to Full Screen"
               >
@@ -1319,7 +1349,7 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 <span>Full Screen</span>
               </button>
             </div>
-            <div className="absolute bottom-4 left-4 z-20 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs">
+            <div className="absolute bottom-4 left-4 z-20 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs pointer-events-none">
               {micActive ? (
                 <Mic className="w-3.5 h-3.5 text-emerald-400" />
               ) : (
@@ -1332,7 +1362,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           /* Side-by-Side Dual View (Equal Face-to-Face Video Call) */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full aspect-video md:aspect-[16/9] min-h-[380px] max-h-[640px]">
             {/* Child Video Tile */}
-            <div className={`relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-2' : 'order-1'}`}>
+            <div
+              className={`relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center ${swapped ? 'order-2' : 'order-1'}`}
+              onDoubleClick={() => {
+                setLayoutMode('full');
+                toggleFullscreen();
+              }}
+            >
               <VideoPlayer
                 stream={remoteStream}
                 isLive={true}
@@ -1340,15 +1376,18 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
                 muted={isMuted} // Parent hears child!
                 className="w-full h-full"
                 fallbackMessage="Waiting for child video feed..."
-                onToggleFullscreen={toggleFullscreen}
+                onToggleFullscreen={() => {
+                  setLayoutMode('full');
+                  toggleFullscreen();
+                }}
               />
               {isChildScreenSharing ? (
-                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl animate-pulse">
+                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-cyan-600/90 backdrop-blur-md border border-cyan-400 text-white text-xs font-bold flex items-center space-x-1.5 shadow-xl animate-pulse pointer-events-none">
                   <Monitor className="w-3.5 h-3.5 text-cyan-200" />
                   <span>Child Screen Mirror Active</span>
                 </div>
               ) : (
-                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg">
+                <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg pointer-events-none">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span>{activeDeviceName} (Child)</span>
                 </div>
@@ -1356,22 +1395,30 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               {/* Quick Action Overlay on Child Tile in Split View */}
               <div className="absolute top-3 right-3 z-10 flex items-center space-x-1.5 bg-black/70 backdrop-blur-md p-1 rounded-xl border border-white/10 shadow-lg">
                 <button
-                  onClick={() => setLayoutMode('full')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLayoutMode('full');
+                    toggleFullscreen();
+                  }}
                   className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold transition-colors cursor-pointer"
-                  title="Switch to Full View of Child"
+                  title="View Child in Full Screen"
                 >
                   <Tv className="w-3 h-3 text-emerald-400" />
-                  <span>Full View</span>
+                  <span>Full Screen</span>
                 </button>
                 <button
-                  onClick={toggleFullscreen}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLayoutMode('full');
+                    toggleFullscreen();
+                  }}
                   className="p-1 rounded-lg text-slate-200 hover:text-white cursor-pointer"
                   title="Expand to Full Screen"
                 >
                   <Maximize className="w-3.5 h-3.5 text-emerald-400" />
                 </button>
               </div>
-              <div className="absolute bottom-3 left-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs">
+              <div className="absolute bottom-3 left-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs pointer-events-none">
                 {micActive ? (
                   <Mic className="w-3.5 h-3.5 text-emerald-400" />
                 ) : (
@@ -1435,7 +1482,13 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
           </div>
         ) : (
           /* PiP Mode: Full primary video with floating secondary card */
-          <div className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
+          <div
+            className="relative w-full aspect-video max-h-[640px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800"
+            onDoubleClick={() => {
+              setLayoutMode('full');
+              toggleFullscreen();
+            }}
+          >
             <VideoPlayer
               stream={remoteStream}
               isLive={true}
@@ -1443,20 +1496,31 @@ export const LiveMonitoringPanel: React.FC<LiveMonitoringPanelProps> = ({
               muted={isMuted} // Parent hears child if unmuted
               className="w-full h-full"
               fallbackMessage="Waiting for child video feed..."
-              onToggleFullscreen={toggleFullscreen}
+              onToggleFullscreen={() => {
+                setLayoutMode('full');
+                toggleFullscreen();
+              }}
             />
             {/* Quick Actions in PiP Mode */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-2 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 shadow-lg">
               <button
-                onClick={() => setLayoutMode('full')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLayoutMode('full');
+                  toggleFullscreen();
+                }}
                 className="flex items-center space-x-1 px-2 py-0.5 rounded-lg text-slate-200 hover:text-white text-xs font-semibold cursor-pointer"
-                title="Switch to Full View of Child"
+                title="View Child in Full Screen"
               >
                 <Tv className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Full View</span>
+                <span>Full Screen</span>
               </button>
               <button
-                onClick={toggleFullscreen}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLayoutMode('full');
+                  toggleFullscreen();
+                }}
                 className="p-1 rounded-lg text-slate-200 hover:text-white cursor-pointer"
                 title="Expand to Full Screen"
               >
